@@ -41,7 +41,11 @@ pub(crate) struct Config {
     pub(crate) repo: PathBuf,
     pub(crate) file: String,
     pub(crate) remote: String,
+    pub(crate) llm: bool,
+    pub(crate) llm_model: String,
 }
+
+const LLM_ENDPOINT: &str = "http://localhost:11434/api/generate";
 
 // " — " (space, U+2014 em dash, space)
 pub(crate) const SEP: &str = " \u{2014} ";
@@ -78,6 +82,8 @@ pub(crate) fn load_config() -> Result<Config, String> {
     let mut repo = String::new();
     let mut file = String::new();
     let mut remote = String::new();
+    let mut llm = false;
+    let mut llm_model = String::new();
 
     for line in content.lines() {
         let line = line.trim();
@@ -90,6 +96,8 @@ pub(crate) fn load_config() -> Result<Config, String> {
                 "repo" => repo = v.to_string(),
                 "file" => file = v.to_string(),
                 "remote" => remote = v.to_string(),
+                "llm" => llm = v == "true",
+                "llm_model" => llm_model = v.to_string(),
                 _ => {}
             }
         }
@@ -107,6 +115,8 @@ pub(crate) fn load_config() -> Result<Config, String> {
             file
         },
         remote,
+        llm,
+        llm_model: if llm_model.is_empty() { "llama3.2".to_string() } else { llm_model },
     })
 }
 
@@ -192,7 +202,30 @@ pub(crate) fn capture_hashes(config: &Config) -> Vec<String> {
 
 // --- Core logic used by both CLI and TUI ---
 
-pub(crate) fn do_capture(text: &str, config: &Config) -> Result<String, String> {
+fn llm_reply(text: &str, model: &str) -> Option<String> {
+    if !text.contains('?') {
+        return None;
+    }
+    let body = serde_json::json!({
+        "model": model,
+        "prompt": format!("Answer in one concise sentence, no preamble: {}", text),
+        "stream": false
+    });
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(25))
+        .build();
+    let resp = agent
+        .post(LLM_ENDPOINT)
+        .set("Content-Type", "application/json")
+        .send_string(&body.to_string())
+        .ok()?;
+    let resp_body = resp.into_string().ok()?;
+    let json: serde_json::Value = serde_json::from_str(&resp_body).ok()?;
+    let reply = json["response"].as_str()?.trim().to_string();
+    if reply.is_empty() { None } else { Some(reply) }
+}
+
+pub(crate) fn do_capture(text: &str, config: &Config) -> Result<(String, String, Option<String>), String> {
     let path = hm_path(config);
     let ts = Local::now().format("%Y-%m-%d %H:%M").to_string();
     let entry = format!("{}{}{}\n", ts, SEP, text);
@@ -201,7 +234,16 @@ pub(crate) fn do_capture(text: &str, config: &Config) -> Result<String, String> 
         .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
     git_silent(&config.repo, &["add", &config.file])?;
     git_silent(&config.repo, &["commit", "-m", &format!("capture: {}", preview(text))])?;
-    Ok(ts)
+    let hash = Command::new("git")
+        .current_dir(&config.repo)
+        .args(["rev-parse", "--short", "HEAD"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "???????".to_string());
+    let reply = if config.llm { llm_reply(text, &config.llm_model) } else { None };
+    Ok((hash, ts, reply))
 }
 
 pub(crate) fn do_delete(hash: &str, config: &Config) -> Result<(), String> {
@@ -262,8 +304,11 @@ fn cmd_capture(parts: &[String]) -> Result<(), String> {
     let text = parts.join(" ");
     let text = text.trim();
     let config = load_config()?;
-    let ts = do_capture(text, &config)?;
-    println!("{}{}{}", ts, SEP, text);
+    let (hash, ts, reply) = do_capture(text, &config)?;
+    println!("{}  {}{}{}", hash, ts, SEP, text);
+    if let Some(r) = reply {
+        println!("  \u{2192} {}", r);
+    }
     Ok(())
 }
 

@@ -271,10 +271,13 @@ fn process_event(
                 let text = input.trim().to_string();
                 if !text.is_empty() {
                     app.mode = match do_capture(&text, &app.config) {
-                        Ok(ts) => {
+                        Ok((hash, ts, reply)) => {
                             app.reload();
                             app.list_state.select(Some(0));
-                            Mode::Message(format!("Saved  {}", ts))
+                            match reply {
+                                Some(r) => Mode::Message(format!("Saved {}  {}  \u{2192} {}", hash, ts, r)),
+                                None => Mode::Message(format!("Saved {}  {}", hash, ts)),
+                            }
                         }
                         Err(e) => Mode::Message(format!("Error: {}", e)),
                     };
