@@ -10,6 +10,7 @@ Minimal thought-capture CLI. Writes to a single markdown file in a git repo.
 hm "some thought"     # capture
 hm ls                 # list recent entries (with commit hash IDs)
 hm delete <hash>      # delete entry by commit hash
+hm search <query>     # search entries (case-insensitive)
 hm push               # push to remote
 hm tui                # interactive TUI
 hm init --repo <url>  # first-time setup
@@ -45,6 +46,9 @@ Deleted 4727282.
 % hm "has anyone ever used a boss bd-2 as a nonlinearity in a neural net?"
 4727282  2026-07-19 15:33 — has anyone ever used a boss bd-2 as a nonlinearity in a neural net?
   → No documented examples, but neural nets have been used to model the BD-2 — running it in reverse as an activation would be novel.
+
+% hm search "bd-2"
+4727282  2026-07-19 15:33  has anyone ever used a boss bd-2 as a nonlinearity in a neural net?
 
 % hm push
 Pushed → https://github.com/src-kearney/thoughts.git

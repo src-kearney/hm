@@ -30,6 +30,8 @@ enum Commands {
     Delete { hash: String },
     /// Push commits to remote
     Push,
+    /// Search entries
+    Search { query: String },
     /// Open the interactive TUI
     Tui,
     /// Capture a thought (default when no subcommand given)
@@ -409,6 +411,39 @@ fn cmd_init(repo_url: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn cmd_search(query: &str) -> Result<(), String> {
+    let config = load_config()?;
+    let path = hm_path(&config);
+    let content = fs::read_to_string(&path).unwrap_or_default();
+    let query_lower = query.to_lowercase();
+    let hashes = capture_hashes(&config);
+
+    let matches: Vec<(usize, &str)> = content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .enumerate()
+        .filter(|(_, l)| l.to_lowercase().contains(&query_lower))
+        .collect();
+
+    if matches.is_empty() {
+        println!("No matches.");
+        return Ok(());
+    }
+
+    for (i, line) in matches {
+        let hash = hashes.get(i).map(|s| s.as_str()).unwrap_or("???????");
+        if let Some(pos) = line.find(SEP) {
+            let ts = &line[..pos];
+            let text = &line[pos + SEP.len()..];
+            println!("{}  {}  {}", hash, ts, text);
+        } else {
+            println!("{}  {}", hash, line);
+        }
+    }
+
+    Ok(())
+}
+
 fn cmd_delete(hash: &str) -> Result<(), String> {
     let config = load_config()?;
     do_delete(hash, &config)?;
@@ -430,6 +465,7 @@ fn main() {
         Commands::Delete { hash } => cmd_delete(&hash),
         Commands::Init { repo } => cmd_init(&repo),
         Commands::Push => cmd_push(),
+        Commands::Search { query } => cmd_search(&query),
         Commands::Tui => tui::run(),
         Commands::Capture(parts) => cmd_capture(&parts),
     };
