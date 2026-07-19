@@ -32,7 +32,7 @@ Creates `~/.local/share/hm` (cloned repo) and `~/.config/hm/config.toml`.
 df27d25  2026-07-19 14:57  am i an out-of-the-box thinker if i only use out-of-the-box solutions?
 
 % hm new thought
-2026-07-19 15:29 — new thought
+a3f91bc  2026-07-19 15:29 — new thought
 
 % hm ls
 4727282  2026-07-19 15:29  new thought
@@ -43,14 +43,23 @@ df27d25  2026-07-19 14:57  am i an out-of-the-box thinker if i only use out-of-t
 Deleted 4727282.
 
 % hm "has anyone ever used a boss bd-2 as a nonlinearity in a neural net?"
-2026-07-19 15:33 — has anyone ever used a boss bd-2 as a nonlinearity in a neural net?
+4727282  2026-07-19 15:33 — has anyone ever used a boss bd-2 as a nonlinearity in a neural net?
+  → No documented examples, but neural nets have been used to model the BD-2 — running it in reverse as an activation would be novel.
 
 % hm push
 Pushed → https://github.com/src-kearney/thoughts.git
 ```
 
-Double quotes `"` were required around the second thought entry due to the special character `?`.
+Double quotes `"` are required when the thought contains shell special characters like `?`.
 
+## llm replies
+
+With `llm = true` in `~/.config/hm/config.toml`, thoughts containing `?` trigger a local LLM reply via [Ollama](https://ollama.com). Install Ollama, run `ollama pull <model>`, then set `llm_model` to any pulled model (default: `llama3.2`).
+
+```toml
+llm = true
+llm_model = "mistral"  # any model from ollama.com/library
+```
 
 ## commit log format
 
