@@ -58,7 +58,7 @@ With `llm = true` in `~/.config/hm/config.toml`, thoughts containing `?` trigger
 
 ```toml
 llm = true
-llm_model = "mistral"
+llm_model = "mistral"  # any model from ollama.com/library
 ```
 
 ## commit log format
