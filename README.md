@@ -1,5 +1,9 @@
 # hm
 
+<p align="center">
+  <img src="logo.svg" width="220" alt="hm">
+</p>
+
 Minimal thought-capture CLI. Writes to a single markdown file in a git repo.
 
 ```

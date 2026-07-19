@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 165" width="240" height="165">
+  <!-- tail dots -->
+  <circle cx="74" cy="120" r="9" fill="white" stroke="black" stroke-width="2.5"/>
+  <circle cx="59" cy="138" r="6" fill="white" stroke="black" stroke-width="2"/>
+  <circle cx="48" cy="153" r="4" fill="white" stroke="black" stroke-width="1.5"/>
+
+  <!-- cloud top bumps -->
+  <circle cx="90" cy="60" r="38" fill="white" stroke="black" stroke-width="3"/>
+  <circle cx="138" cy="45" r="32" fill="white" stroke="black" stroke-width="3"/>
+  <circle cx="178" cy="59" r="27" fill="white" stroke="black" stroke-width="3"/>
+
+  <!-- cloud body -->
+  <circle cx="72" cy="87" r="30" fill="white" stroke="black" stroke-width="3"/>
+  <circle cx="133" cy="96" r="40" fill="white" stroke="black" stroke-width="3"/>
+  <circle cx="191" cy="83" r="27" fill="white" stroke="black" stroke-width="3"/>
+
+</svg>
