@@ -39,6 +39,12 @@ Richer git log, better grep signal.
 
 ---
 
+## obsidian plugin
+
+Sync the notes repo into an Obsidian vault. A community plugin watches `hm.md` for changes and surfaces new entries as Obsidian notes, backlinks intact.
+
+---
+
 ## semantic search with homomorphic encryption
 
 `hm search <query>` runs semantic similarity over thought embeddings without decrypting them the notes repo stays encrypted at rest and the search computation happens over ciphertext.
