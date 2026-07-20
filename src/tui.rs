@@ -15,7 +15,7 @@ use ratatui::{
 use std::io::{self, stdout, Write};
 use std::mem;
 
-use crate::{capture_hashes, do_capture, do_delete, do_push, git_silent, hm_path, load_config, Config, SEP};
+use crate::{capture_hashes, do_capture, do_delete, do_push, format_entry, git_silent, hm_path, load_config, parse_entries, Config};
 
 enum Mode {
     Browse,
@@ -86,17 +86,13 @@ impl App {
 fn load_entries(config: &Config) -> Vec<(String, String, String)> {
     let path = hm_path(config);
     let hashes = capture_hashes(config);
-    std::fs::read_to_string(&path)
-        .unwrap_or_default()
-        .lines()
-        .filter(|l| !l.trim().is_empty())
+    let content = std::fs::read_to_string(&path).unwrap_or_default();
+    parse_entries(&content)
+        .into_iter()
         .enumerate()
-        .map(|(i, l)| {
+        .map(|(i, (ts, text))| {
             let hash = hashes.get(i).cloned().unwrap_or_else(|| "???????".to_string());
-            match l.find(SEP) {
-                Some(pos) => (hash, l[..pos].to_string(), l[pos + SEP.len()..].to_string()),
-                None => (hash, String::new(), l.to_string()),
-            }
+            (hash, ts, text)
         })
         .collect()
 }
@@ -309,7 +305,7 @@ fn open_vim(
         None => return Ok(()),
     };
 
-    let (_, ts, text) = app.entries[idx].clone();
+    let (_, _ts, text) = app.entries[idx].clone();
 
     // Write just this entry's text to a temp file so vim edits one thought.
     let tmp = std::env::temp_dir().join("hm_edit.txt");
@@ -345,19 +341,11 @@ fn open_vim(
     if !new_text.is_empty() && new_text != text {
         let path = hm_path(&app.config);
         let content = std::fs::read_to_string(&path).unwrap_or_default();
-        let new_entry = if ts.is_empty() {
-            new_text
-        } else {
-            format!("{}{}{}", ts, SEP, new_text)
-        };
-        let new_content = content
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .enumerate()
-            .map(|(i, l)| if i == idx { new_entry.clone() } else { l.to_string() })
-            .collect::<Vec<_>>()
-            .join("\n")
-            + "\n";
+        let mut entries = parse_entries(&content);
+        if idx < entries.len() {
+            entries[idx].1 = new_text.clone();
+        }
+        let new_content: String = entries.iter().map(|(t, s)| format_entry(t, s)).collect();
         std::fs::write(&path, new_content)
             .map_err(|e| format!("Failed to write file: {}", e))?;
         git_silent(&app.config.repo, &["add", &app.config.file])?;

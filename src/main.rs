@@ -43,6 +43,10 @@ enum Commands {
         #[arg(short = 'n', long, default_value = "20")]
         count: usize,
     },
+    /// Pull latest changes from remote
+    Pull,
+    /// Migrate notes file to current markdown format
+    Migrate,
     /// View or set config values
     Config {
         #[command(subcommand)]
@@ -180,6 +184,39 @@ pub(crate) fn hm_path(config: &Config) -> PathBuf {
     config.repo.join(&config.file)
 }
 
+pub(crate) fn format_entry(ts: &str, text: &str) -> String {
+    format!("## {}\n\n{}\n\n---\n", ts, text)
+}
+
+pub(crate) fn parse_entries(content: &str) -> Vec<(String, String)> {
+    let mut entries = Vec::new();
+    for block in content.split("\n---\n") {
+        let block = block.trim_matches('\n');
+        if block.is_empty() { continue; }
+        if let Some(rest) = block.strip_prefix("## ") {
+            let mut parts = rest.splitn(3, '\n');
+            let ts = parts.next().unwrap_or("").trim().to_string();
+            parts.next(); // blank line
+            let text = parts.next().unwrap_or("").trim().to_string();
+            if !ts.is_empty() {
+                entries.push((ts, text));
+            }
+        } else {
+            // legacy single-line format: "YYYY-MM-DD HH:MM — text"
+            for line in block.lines() {
+                let line = line.trim();
+                if line.is_empty() { continue; }
+                if let Some(pos) = line.find(SEP) {
+                    entries.push((line[..pos].to_string(), line[pos + SEP.len()..].to_string()));
+                } else {
+                    entries.push((String::new(), line.to_string()));
+                }
+            }
+        }
+    }
+    entries
+}
+
 pub(crate) fn git_silent(repo: &Path, args: &[&str]) -> Result<(), String> {
     let out = Command::new("git")
         .current_dir(repo)
@@ -295,7 +332,7 @@ fn llm_reply(text: &str, model: &str, trigger: &LlmTrigger, classifier_prompt: &
 fn do_commit(text: &str, config: &Config) -> Result<(String, String), String> {
     let path = hm_path(config);
     let ts = Local::now().format("%Y-%m-%d %H:%M").to_string();
-    let entry = format!("{}{}{}\n", ts, SEP, text);
+    let entry = format_entry(&ts, text);
     let existing = fs::read_to_string(&path).unwrap_or_default();
     fs::write(&path, format!("{}{}", entry, existing))
         .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
@@ -328,30 +365,16 @@ pub(crate) fn do_delete(hash: &str, config: &Config) -> Result<(), String> {
     let path = hm_path(config);
     let content = fs::read_to_string(&path).map_err(|_| "No entries found.".to_string())?;
 
-    let lines: Vec<&str> = content
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .collect();
+    let mut entries = parse_entries(&content);
 
-    if idx >= lines.len() {
+    if idx >= entries.len() {
         return Err("Entry not found in file.".to_string());
     }
 
-    let entry_text = match lines[idx].find(SEP) {
-        Some(pos) => &lines[idx][pos + SEP.len()..],
-        None => lines[idx],
-    };
-    let msg = format!("delete: {}", preview(entry_text));
+    let msg = format!("delete: {}", preview(&entries[idx].1));
+    entries.remove(idx);
 
-    let new_content = lines
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| *i != idx)
-        .map(|(_, l)| *l)
-        .collect::<Vec<_>>()
-        .join("\n")
-        + "\n";
-
+    let new_content: String = entries.iter().map(|(ts, text)| format_entry(ts, text)).collect();
     fs::write(&path, new_content).map_err(|e| format!("Failed to write file: {}", e))?;
 
     git_silent(&config.repo, &["add", &config.file])?;
@@ -535,28 +558,17 @@ fn cmd_ls(count: usize) -> Result<(), String> {
         }
     };
 
-    let entries: Vec<&str> = content
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .take(count)
-        .collect();
+    let hashes = capture_hashes(&config);
+    let entries = parse_entries(&content);
 
     if entries.is_empty() {
         println!("No entries yet.");
         return Ok(());
     }
 
-    let hashes = capture_hashes(&config);
-
-    for (i, line) in entries.iter().enumerate() {
+    for (i, (ts, text)) in entries.iter().take(count).enumerate() {
         let hash = hashes.get(i).map(|s| s.as_str()).unwrap_or("???????");
-        if let Some(pos) = line.find(SEP) {
-            let ts = &line[..pos];
-            let text = &line[pos + SEP.len()..];
-            println!("{}  {}  {}", hash, ts, text);
-        } else {
-            println!("{}  {}", hash, line);
-        }
+        println!("{}  {}  {}", hash, ts, text);
     }
 
     Ok(())
@@ -626,12 +638,14 @@ fn cmd_search(query: &str) -> Result<(), String> {
     let content = fs::read_to_string(&path).unwrap_or_default();
     let query_lower = query.to_lowercase();
     let hashes = capture_hashes(&config);
+    let entries = parse_entries(&content);
 
-    let matches: Vec<(usize, &str)> = content
-        .lines()
-        .filter(|l| !l.trim().is_empty())
+    let matches: Vec<(usize, &(String, String))> = entries
+        .iter()
         .enumerate()
-        .filter(|(_, l)| l.to_lowercase().contains(&query_lower))
+        .filter(|(_, (ts, text))| {
+            ts.to_lowercase().contains(&query_lower) || text.to_lowercase().contains(&query_lower)
+        })
         .collect();
 
     if matches.is_empty() {
@@ -639,15 +653,9 @@ fn cmd_search(query: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    for (i, line) in matches {
+    for (i, (ts, text)) in matches {
         let hash = hashes.get(i).map(|s| s.as_str()).unwrap_or("???????");
-        if let Some(pos) = line.find(SEP) {
-            let ts = &line[..pos];
-            let text = &line[pos + SEP.len()..];
-            println!("{}  {}  {}", hash, ts, text);
-        } else {
-            println!("{}  {}", hash, line);
-        }
+        println!("{}  {}  {}", hash, ts, text);
     }
 
     Ok(())
@@ -759,6 +767,32 @@ fn cmd_push() -> Result<(), String> {
     Ok(())
 }
 
+fn cmd_pull() -> Result<(), String> {
+    let config = load_config()?;
+    git_passthrough(&config.repo, &["pull", "--rebase"])
+}
+
+fn cmd_migrate() -> Result<(), String> {
+    let config = load_config()?;
+    let path = hm_path(&config);
+    let content = fs::read_to_string(&path).unwrap_or_default();
+    let entries = parse_entries(&content);
+    if entries.is_empty() {
+        println!("Nothing to migrate.");
+        return Ok(());
+    }
+    let new_content: String = entries.iter().map(|(ts, text)| format_entry(ts, text)).collect();
+    if new_content == content {
+        println!("Already up to date.");
+        return Ok(());
+    }
+    fs::write(&path, &new_content).map_err(|e| format!("Failed to write: {}", e))?;
+    git_silent(&config.repo, &["add", &config.file])?;
+    git_silent(&config.repo, &["commit", "-m", "migrate: reformat entries to markdown"])?;
+    println!("Migrated {} entries.", entries.len());
+    Ok(())
+}
+
 fn cmd_log(count: usize) -> Result<(), String> {
     let config = load_config()?;
     let out = Command::new("git")
@@ -793,6 +827,8 @@ fn main() {
         Commands::View { path } => cmd_view(&path),
         Commands::Tui => tui::run(),
         Commands::Log { count } => cmd_log(count),
+        Commands::Pull => cmd_pull(),
+        Commands::Migrate => cmd_migrate(),
         Commands::Config { cmd } => match cmd {
             ConfigCmd::Ls => cmd_config_ls(),
             ConfigCmd::Set { key, value } => cmd_config_set(&key, &value),
