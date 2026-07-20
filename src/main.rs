@@ -38,6 +38,11 @@ enum Commands {
     View { path: String },
     /// Open the interactive TUI
     Tui,
+    /// Show commit history of the notes file
+    Log {
+        #[arg(short = 'n', long, default_value = "20")]
+        count: usize,
+    },
     /// View or set config values
     Config {
         #[command(subcommand)]
@@ -754,6 +759,29 @@ fn cmd_push() -> Result<(), String> {
     Ok(())
 }
 
+fn cmd_log(count: usize) -> Result<(), String> {
+    let config = load_config()?;
+    let out = Command::new("git")
+        .current_dir(&config.repo)
+        .args([
+            "log",
+            &format!("-{}", count),
+            "--format=%h %ad %s",
+            "--date=format:%Y-%m-%d %H:%M",
+            "--",
+            &config.file,
+        ])
+        .output()
+        .map_err(|e| format!("Failed to run git log: {}", e))?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    if text.trim().is_empty() {
+        println!("No history yet.");
+    } else {
+        print!("{}", text);
+    }
+    Ok(())
+}
+
 fn main() {
     let cli = Cli::parse();
     let result = match cli.command {
@@ -764,6 +792,7 @@ fn main() {
         Commands::Search { query } => cmd_search(&query),
         Commands::View { path } => cmd_view(&path),
         Commands::Tui => tui::run(),
+        Commands::Log { count } => cmd_log(count),
         Commands::Config { cmd } => match cmd {
             ConfigCmd::Ls => cmd_config_ls(),
             ConfigCmd::Set { key, value } => cmd_config_set(&key, &value),

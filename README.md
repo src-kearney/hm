@@ -9,6 +9,7 @@ Minimal thought-capture CLI. Writes to a single markdown file in a git repo.
 ```
 hm "some thought"        # capture
 hm ls                    # list recent entries (with commit hash IDs)
+hm log                   # show full commit history of notes file
 hm delete <hash>         # delete entry by commit hash
 hm search <query>        # search entries (case-insensitive)
 hm view <file>           # view a markdown file
