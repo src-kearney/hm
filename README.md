@@ -11,6 +11,7 @@ hm "some thought"     # capture
 hm ls                 # list recent entries (with commit hash IDs)
 hm delete <hash>      # delete entry by commit hash
 hm search <query>     # search entries (case-insensitive)
+hm view <file>        # view a markdown file in vim
 hm push               # push to remote
 hm tui                # interactive TUI
 hm init --repo <url>  # first-time setup
@@ -64,6 +65,10 @@ With `llm = true` in `~/.config/hm/config.toml`, thoughts containing `?` trigger
 llm = true
 llm_model = "mistral"  # any model from ollama.com/library
 ```
+
+## view
+
+`hm view <file>` renders any markdown file in the terminal. Set `theme = "laptop"` (full color) or `theme = "eink"` (plain) in `~/.config/hm/config.toml`.
 
 ## commit log format
 

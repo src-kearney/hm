@@ -32,11 +32,18 @@ enum Commands {
     Push,
     /// Search entries
     Search { query: String },
+    /// View a markdown file
+    View { path: String },
     /// Open the interactive TUI
     Tui,
     /// Capture a thought (default when no subcommand given)
     #[command(external_subcommand)]
     Capture(Vec<String>),
+}
+
+pub(crate) enum Theme {
+    Laptop,
+    Eink,
 }
 
 pub(crate) struct Config {
@@ -45,6 +52,7 @@ pub(crate) struct Config {
     pub(crate) remote: String,
     pub(crate) llm: bool,
     pub(crate) llm_model: String,
+    pub(crate) theme: Theme,
 }
 
 const LLM_ENDPOINT: &str = "http://localhost:11434/api/generate";
@@ -86,6 +94,7 @@ pub(crate) fn load_config() -> Result<Config, String> {
     let mut remote = String::new();
     let mut llm = false;
     let mut llm_model = String::new();
+    let mut theme = String::new();
 
     for line in content.lines() {
         let line = line.trim();
@@ -100,6 +109,7 @@ pub(crate) fn load_config() -> Result<Config, String> {
                 "remote" => remote = v.to_string(),
                 "llm" => llm = v == "true",
                 "llm_model" => llm_model = v.to_string(),
+                "theme" => theme = v.to_string(),
                 _ => {}
             }
         }
@@ -119,6 +129,7 @@ pub(crate) fn load_config() -> Result<Config, String> {
         remote,
         llm,
         llm_model: if llm_model.is_empty() { "llama3.2".to_string() } else { llm_model },
+        theme: if theme == "eink" { Theme::Eink } else { Theme::Laptop },
     })
 }
 
@@ -444,6 +455,22 @@ fn cmd_search(query: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn cmd_view(path: &str) -> Result<(), String> {
+    let config = load_config()?;
+    let expanded = expand_tilde(path);
+    let content = fs::read_to_string(&expanded)
+        .map_err(|e| format!("Cannot read '{}': {}", expanded.display(), e))?;
+    let mut skin = termimad::MadSkin::default();
+    if let Theme::Eink = config.theme {
+        skin.set_headers_fg(termimad::crossterm::style::Color::Reset);
+        skin.bold.set_fg(termimad::crossterm::style::Color::Reset);
+        skin.italic.set_fg(termimad::crossterm::style::Color::Reset);
+        skin.inline_code.set_fg(termimad::crossterm::style::Color::Reset);
+    }
+    skin.print_text(&content);
+    Ok(())
+}
+
 fn cmd_delete(hash: &str) -> Result<(), String> {
     let config = load_config()?;
     do_delete(hash, &config)?;
@@ -466,6 +493,7 @@ fn main() {
         Commands::Init { repo } => cmd_init(&repo),
         Commands::Push => cmd_push(),
         Commands::Search { query } => cmd_search(&query),
+        Commands::View { path } => cmd_view(&path),
         Commands::Tui => tui::run(),
         Commands::Capture(parts) => cmd_capture(&parts),
     };

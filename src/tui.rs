@@ -323,8 +323,12 @@ fn open_vim(
     execute!(out, cursor::Show, SetCursorStyle::BlinkingBlock).map_err(|e| e.to_string())?;
     out.flush().map_err(|e| e.to_string())?;
 
+    let colorscheme = match app.config.theme {
+        crate::Theme::Laptop => "slate",
+        crate::Theme::Eink => "morning",
+    };
     std::process::Command::new("vim")
-        .args(["-c", "colorscheme morning"])
+        .args(["-c", &format!("colorscheme {}", colorscheme)])
         .arg(&tmp)
         .status()
         .map_err(|e| format!("Failed to launch vim: {}", e))?;

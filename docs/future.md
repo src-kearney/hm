@@ -39,6 +39,12 @@ Richer git log, better grep signal.
 
 ---
 
+## remora apple silicon target
+
+Compile and run inference via Remora on Apple Silicon using a Metal backend. Replaces the Ollama subprocess with a direct call to Remora — same StableHLO pipeline, native GPU execution on M-series chips.
+
+---
+
 ## obsidian plugin
 
 Sync the notes repo into an Obsidian vault. A community plugin watches `hm.md` for changes and surfaces new entries as Obsidian notes, backlinks intact.
