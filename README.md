@@ -33,11 +33,11 @@ Creates `~/.local/share/hm` (cloned repo) and `~/.config/hm/config.toml`.
 79b8f00  2026-07-19 14:59  this should have semantic search with homomorphic encyption
 df27d25  2026-07-19 14:57  am i an out-of-the-box thinker if i only use out-of-the-box solutions?
 
-% hm new thought
-a3f91bc  2026-07-19 15:29 — new thought
+% hm just scribbling random node here
+a3f91bc  2026-07-19 15:29 — just scribbling random node here
 
 % hm ls
-4727282  2026-07-19 15:29  new thought
+4727282  2026-07-19 15:29  just scribbling random node here
 79b8f00  2026-07-19 14:59  this should have semantic search with homomorphic encyption
 df27d25  2026-07-19 14:57  am i an out-of-the-box thinker if i only use out-of-the-box solutions?
 
