@@ -404,17 +404,10 @@ fn word_cloud_loader<F: FnOnce() -> Option<String>>(pool: Vec<String>, f: F) -> 
         return f();
     }
 
-    const ROWS: usize = 8;
-    const WIDTH: usize = 72;
+    const ROWS: usize = 1;
+    const WIDTH: usize = 88;
     const SLOTS: &[(usize, usize)] = &[
-        (0, 4),  (0, 40),
-        (1, 16), (1, 50),
-        (2, 6),  (2, 44),
-        (3, 0),  (3, 28), (3, 56),
-        (4, 10), (4, 46),
-        (5, 4),  (5, 36),
-        (6, 18), (6, 52),
-        (7, 8),  (7, 42),
+        (0, 1), (0, 13), (0, 27), (0, 41), (0, 55), (0, 69),
     ];
 
     for _ in 0..ROWS { eprintln!(); }
@@ -439,6 +432,13 @@ fn word_cloud_loader<F: FnOnce() -> Option<String>>(pool: Vec<String>, f: F) -> 
         let mut slots: Vec<Slot> = SLOTS.iter().map(|&(row, col)| {
             Slot { row, col, word: String::new(), life: 0, visible: false }
         }).collect();
+
+        // shuffle reveal order
+        for i in (1..slots.len()).rev() {
+            let j = rng(i + 1);
+            slots.swap(i, j);
+        }
+
         let mut reveal_idx = 0usize;
 
         loop {
