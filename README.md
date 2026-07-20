@@ -7,14 +7,16 @@
 Minimal thought-capture CLI. Writes to a single markdown file in a git repo.
 
 ```
-hm "some thought"     # capture
-hm ls                 # list recent entries (with commit hash IDs)
-hm delete <hash>      # delete entry by commit hash
-hm search <query>     # search entries (case-insensitive)
-hm view <file>        # view a markdown file in vim
-hm push               # push to remote
-hm tui                # interactive TUI
-hm init --repo <url>  # first-time setup
+hm "some thought"        # capture
+hm ls                    # list recent entries (with commit hash IDs)
+hm delete <hash>         # delete entry by commit hash
+hm search <query>        # search entries (case-insensitive)
+hm view <file>           # view a markdown file
+hm push                  # push to remote
+hm tui                   # interactive TUI
+hm config ls             # show all config values
+hm config set <key> <v>  # set a config value
+hm init --repo <url>     # first-time setup
 ```
 
 ## setup
@@ -24,7 +26,7 @@ cargo install --path .
 hm init --repo git@github.com:you/your-notes-repo.git
 ```
 
-Creates `~/.local/share/hm` (cloned repo) and `~/.config/hm/config.toml`.
+Creates `~/.local/share/hm` (cloned repo) and `~/.config/hm/config.toml`. See [`config.example.toml`](config.example.toml) for all available options.
 
 ## demo
 
@@ -59,16 +61,30 @@ Double quotes `"` are required when the thought contains shell special character
 
 ## llm replies
 
-With `llm = true` in `~/.config/hm/config.toml`, thoughts containing `?` trigger a local LLM reply via [Ollama](https://ollama.com). Install Ollama, run `ollama pull <model>`, then set `llm_model` to any pulled model (default: `llama3.2`).
+With `llm = true` in `~/.config/hm/config.toml`, captured thoughts can trigger a local LLM reply via [Ollama](https://ollama.com). Install Ollama, run `ollama pull <model>`, then set `llm_model` to any pulled model (default: `llama3.2`).
 
 ```toml
 llm = true
-llm_model = "mistral"  # any model from ollama.com/library
+llm_model = "mistral"       # any model from ollama.com/library
+llm_trigger = "heuristic"   # heuristic | classifier | always | off
 ```
 
-## view
+`llm_trigger` controls when a reply fires:
 
-`hm view <file>` renders any markdown file in the terminal. Set `theme = "laptop"` (full color) or `theme = "eink"` (plain) in `~/.config/hm/config.toml`.
+| value | behavior |
+|---|---|
+| `heuristic` | reply only if thought contains `?` (default) |
+| `classifier` | ask the LLM whether a reply is warranted before replying |
+| `always` | reply to every captured thought |
+| `off` | never reply (equivalent to `llm = false`) |
+
+When `llm_trigger = "classifier"`, the prompt sent to the LLM defaults to:
+
+```
+Does this thought warrant a brief reply? The answer is most likely no — only say 'yes' for direct questions or thoughts that clearly invite a response. Answer only 'yes' or 'no': {thought}
+```
+
+Override it with `llm_classifier_prompt` in config. Use `{thought}` as the placeholder for the captured text.
 
 ## commit log format
 
