@@ -36,9 +36,22 @@ enum Commands {
     View { path: String },
     /// Open the interactive TUI
     Tui,
+    /// View or set config values
+    Config {
+        #[command(subcommand)]
+        cmd: ConfigCmd,
+    },
     /// Capture a thought (default when no subcommand given)
     #[command(external_subcommand)]
     Capture(Vec<String>),
+}
+
+#[derive(Subcommand)]
+enum ConfigCmd {
+    /// List all config values (including defaults)
+    Ls,
+    /// Set a config value
+    Set { key: String, value: String },
 }
 
 pub(crate) enum Theme {
@@ -508,6 +521,79 @@ fn cmd_view(path: &str) -> Result<(), String> {
     Ok(())
 }
 
+const CONFIG_KEYS: &[(&str, &str)] = &[
+    ("repo",                  "path"),
+    ("file",                  "filename"),
+    ("remote",                "url"),
+    ("llm",                   "true | false"),
+    ("llm_model",             "any Ollama model name"),
+    ("llm_trigger",           "heuristic | classifier | always | off"),
+    ("llm_classifier_prompt", "string — use {thought} as placeholder"),
+    ("theme",                 "laptop | eink"),
+];
+
+fn cmd_config_ls() -> Result<(), String> {
+    let config = load_config()?;
+    let trigger = match config.llm_trigger {
+        LlmTrigger::Off        => "off",
+        LlmTrigger::Heuristic  => "heuristic",
+        LlmTrigger::Classifier => "classifier",
+        LlmTrigger::Always     => "always",
+    };
+    let theme = match config.theme {
+        Theme::Laptop => "laptop",
+        Theme::Eink   => "eink",
+    };
+    let values: &[(&str, String)] = &[
+        ("repo",                  config.repo.display().to_string()),
+        ("file",                  config.file.clone()),
+        ("remote",                config.remote.clone()),
+        ("llm",                   config.llm.to_string()),
+        ("llm_model",             config.llm_model.clone()),
+        ("llm_trigger",           trigger.to_string()),
+        ("llm_classifier_prompt", config.llm_classifier_prompt.clone()),
+        ("theme",                 theme.to_string()),
+    ];
+    let key_width = values.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
+    let val_width = values.iter().map(|(_, v)| v.len().min(40)).max().unwrap_or(0);
+    for (key, val) in values {
+        let hint = CONFIG_KEYS.iter().find(|(k, _)| *k == *key).map(|(_, h)| *h).unwrap_or("");
+        let display_val = if val.len() > 40 { format!("{}…", &val[..39]) } else { val.clone() };
+        println!("{:<kw$}  =  {:<vw$}  [{}]", key, display_val, hint, kw = key_width, vw = val_width);
+    }
+    Ok(())
+}
+
+fn cmd_config_set(key: &str, value: &str) -> Result<(), String> {
+    let valid_keys: Vec<&str> = CONFIG_KEYS.iter().map(|(k, _)| *k).collect();
+    if !valid_keys.contains(&key) {
+        return Err(format!(
+            "Unknown config key '{}'. Valid keys: {}",
+            key, valid_keys.join(", ")
+        ));
+    }
+    let path = config_path();
+    let content = fs::read_to_string(&path).map_err(|_| {
+        format!("Config not found at {}. Run `hm init --repo <url>` first.", path.display())
+    })?;
+    let new_line = format!("{} = \"{}\"", key, value);
+    let mut found = false;
+    let mut new_lines: Vec<String> = content.lines().map(|line| {
+        if let Some((k, _)) = line.trim().split_once('=') {
+            if k.trim() == key {
+                found = true;
+                return new_line.clone();
+            }
+        }
+        line.to_string()
+    }).collect();
+    if !found { new_lines.push(new_line); }
+    fs::write(&path, new_lines.join("\n") + "\n")
+        .map_err(|e| format!("Failed to write config: {}", e))?;
+    println!("{} = \"{}\"", key, value);
+    Ok(())
+}
+
 fn cmd_delete(hash: &str) -> Result<(), String> {
     let config = load_config()?;
     do_delete(hash, &config)?;
@@ -532,6 +618,10 @@ fn main() {
         Commands::Search { query } => cmd_search(&query),
         Commands::View { path } => cmd_view(&path),
         Commands::Tui => tui::run(),
+        Commands::Config { cmd } => match cmd {
+            ConfigCmd::Ls => cmd_config_ls(),
+            ConfigCmd::Set { key, value } => cmd_config_set(&key, &value),
+        },
         Commands::Capture(parts) => cmd_capture(&parts),
     };
 
