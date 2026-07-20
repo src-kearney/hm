@@ -1,0 +1,34 @@
+# hm config
+
+> Lives in ~/.config/hm/config.toml
+
+# Path to your notes git repo (set automatically by `hm init`)
+repo = "~/.local/share/hm"
+
+# Markdown file inside the repo
+file = "hm.md"
+
+# Git remote URL used by `hm push`
+remote = "git@github.com:you/your-notes-repo.git"
+
+# Enable local LLM replies via Ollama (https://ollama.com)
+llm = false
+
+# Ollama model — run `ollama pull <model>` first
+llm_model = "llama3.2"
+
+# When to fire an LLM reply:
+#   heuristic   — only if the thought contains "?" (default)
+#   classifier  — ask the LLM whether a reply is warranted first
+#   always      — reply to every captured thought
+#   off         — never reply
+llm_trigger = "heuristic"
+
+# Classifier prompt used when llm_trigger = "classifier"
+# {thought} is replaced with the captured text
+llm_classifier_prompt = "Does this thought warrant a brief reply? The answer is most likely no. Only say 'yes' for direct questions or thoughts that clearly invite a response. Answer only 'yes' or 'no': {thought}"
+
+# Terminal color theme for `hm view` and the TUI editor
+#   laptop  — full color (default)
+#   eink    — plain, no color
+theme = "laptop"
