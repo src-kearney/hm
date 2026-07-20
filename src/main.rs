@@ -247,13 +247,24 @@ fn git_passthrough(repo: &Path, args: &[&str]) -> Result<(), String> {
 }
 
 fn preview(s: &str) -> String {
-    const N: usize = 10;
     let chars: Vec<char> = s.chars().collect();
-    if chars.len() <= N {
+    if chars.len() <= 72 {
         s.to_string()
     } else {
-        format!("{}...", chars[..N].iter().collect::<String>())
+        format!("{}…", chars[..72].iter().collect::<String>())
     }
+}
+
+fn commit_summary(text: &str, config: &Config) -> String {
+    if config.llm {
+        if let Some(s) = ollama_call(
+            &config.llm_model,
+            &format!("Summarize in 5-7 words, lowercase, no punctuation, output only the summary: {}", text),
+        ) {
+            return s;
+        }
+    }
+    preview(text)
 }
 
 fn is_capture_subject(s: &str) -> bool {
@@ -329,7 +340,7 @@ fn llm_reply(text: &str, model: &str, trigger: &LlmTrigger, classifier_prompt: &
     ollama_call(model, &format!("Answer in one concise sentence, no preamble: {}", text))
 }
 
-fn do_commit(text: &str, config: &Config) -> Result<(String, String), String> {
+fn do_commit(text: &str, summary: &str, config: &Config) -> Result<(String, String), String> {
     let path = hm_path(config);
     let ts = Local::now().format("%Y-%m-%d %H:%M").to_string();
     let entry = format_entry(&ts, text);
@@ -337,7 +348,7 @@ fn do_commit(text: &str, config: &Config) -> Result<(String, String), String> {
     fs::write(&path, format!("{}{}", entry, existing))
         .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
     git_silent(&config.repo, &["add", &config.file])?;
-    git_silent(&config.repo, &["commit", "-m", &format!("capture: {}", preview(text))])?;
+    git_silent(&config.repo, &["commit", "-m", &format!("capture: {}", summary)])?;
     let hash = Command::new("git")
         .current_dir(&config.repo)
         .args(["rev-parse", "--short", "HEAD"])
@@ -350,7 +361,8 @@ fn do_commit(text: &str, config: &Config) -> Result<(String, String), String> {
 }
 
 pub(crate) fn do_capture(text: &str, config: &Config) -> Result<(String, String, Option<String>), String> {
-    let (hash, ts) = do_commit(text, config)?;
+    let summary = commit_summary(text, config);
+    let (hash, ts) = do_commit(text, &summary, config)?;
     let reply = if config.llm { llm_reply(text, &config.llm_model, &config.llm_trigger, &config.llm_classifier_prompt) } else { None };
     Ok((hash, ts, reply))
 }
@@ -526,7 +538,8 @@ fn cmd_capture(parts: &[String]) -> Result<(), String> {
     let text = parts.join(" ");
     let text = text.trim();
     let config = load_config()?;
-    let (hash, ts) = do_commit(text, &config)?;
+    let summary = commit_summary(text, &config);
+    let (hash, ts) = do_commit(text, &summary, &config)?;
     let reply = if config.llm {
         let pool = load_word_pool(&hm_path(&config));
         let model = config.llm_model.clone();

@@ -92,9 +92,11 @@ Override it with `llm_classifier_prompt` in config. Use `{thought}` as the place
 Every C~~R~~UD operation is a git commit. `hm push` sends them upstream to your notes repo. Each operation writes a commit with a consistent prefix:
 
 ```
-capture: has anyone e...
-edit: this should h...
-delete: am i an out-...
+capture: questioning bd-2 pedal as neural net activation
+edit: semantic search using homomorphic encryption
+delete: out of the box thinking observation
 ```
+
+With `llm = true`, capture commits use a short LLM-generated summary. Otherwise the full thought text is used (truncated at 72 chars).
 
 Filter by operation: `git log --grep="^capture"`, `git log --grep="^edit"`, `git log --grep="^delete"`.
