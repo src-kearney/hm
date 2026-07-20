@@ -81,7 +81,7 @@ llm_trigger = "heuristic"   # heuristic | classifier | always | off
 When `llm_trigger = "classifier"`, the prompt sent to the LLM defaults to:
 
 ```
-Does this thought warrant a brief reply? The answer is most likely no — only say 'yes' for direct questions or thoughts that clearly invite a response. Answer only 'yes' or 'no': {thought}
+Does this thought warrant a brief reply? Say 'yes' for questions or thoughts that invite a response, 'no' for plain statements or observations. Answer only 'yes' or 'no': {thought}
 ```
 
 Override it with `llm_classifier_prompt` in config. Use `{thought}` as the placeholder for the captured text.

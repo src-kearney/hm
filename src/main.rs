@@ -46,16 +46,28 @@ pub(crate) enum Theme {
     Eink,
 }
 
+#[derive(Clone)]
+pub(crate) enum LlmTrigger {
+    Off,
+    Heuristic,
+    Classifier,
+    Always,
+}
+
 pub(crate) struct Config {
     pub(crate) repo: PathBuf,
     pub(crate) file: String,
     pub(crate) remote: String,
     pub(crate) llm: bool,
     pub(crate) llm_model: String,
+    pub(crate) llm_trigger: LlmTrigger,
+    pub(crate) llm_classifier_prompt: String,
     pub(crate) theme: Theme,
 }
 
 const LLM_ENDPOINT: &str = "http://localhost:11434/api/generate";
+const DEFAULT_CLASSIFIER_PROMPT: &str =
+    "Does this thought warrant a brief reply? Say 'yes' for questions or thoughts that invite a response, 'no' for plain statements or observations. Answer only 'yes' or 'no': {thought}";
 
 // " — " (space, U+2014 em dash, space)
 pub(crate) const SEP: &str = " \u{2014} ";
@@ -94,6 +106,8 @@ pub(crate) fn load_config() -> Result<Config, String> {
     let mut remote = String::new();
     let mut llm = false;
     let mut llm_model = String::new();
+    let mut llm_trigger = String::new();
+    let mut llm_classifier_prompt = String::new();
     let mut theme = String::new();
 
     for line in content.lines() {
@@ -109,6 +123,8 @@ pub(crate) fn load_config() -> Result<Config, String> {
                 "remote" => remote = v.to_string(),
                 "llm" => llm = v == "true",
                 "llm_model" => llm_model = v.to_string(),
+                "llm_trigger" => llm_trigger = v.to_string(),
+                "llm_classifier_prompt" => llm_classifier_prompt = v.to_string(),
                 "theme" => theme = v.to_string(),
                 _ => {}
             }
@@ -121,14 +137,21 @@ pub(crate) fn load_config() -> Result<Config, String> {
 
     Ok(Config {
         repo: expand_tilde(&repo),
-        file: if file.is_empty() {
-            "hm.md".to_string()
-        } else {
-            file
-        },
+        file: if file.is_empty() { "hm.md".to_string() } else { file },
         remote,
         llm,
         llm_model: if llm_model.is_empty() { "llama3.2".to_string() } else { llm_model },
+        llm_trigger: match llm_trigger.as_str() {
+            "off"        => LlmTrigger::Off,
+            "classifier" => LlmTrigger::Classifier,
+            "always"     => LlmTrigger::Always,
+            _            => LlmTrigger::Heuristic,
+        },
+        llm_classifier_prompt: if llm_classifier_prompt.is_empty() {
+            DEFAULT_CLASSIFIER_PROMPT.to_string()
+        } else {
+            llm_classifier_prompt
+        },
         theme: if theme == "eink" { Theme::Eink } else { Theme::Laptop },
     })
 }
@@ -215,13 +238,10 @@ pub(crate) fn capture_hashes(config: &Config) -> Vec<String> {
 
 // --- Core logic used by both CLI and TUI ---
 
-fn llm_reply(text: &str, model: &str) -> Option<String> {
-    if !text.contains('?') {
-        return None;
-    }
+fn ollama_call(model: &str, prompt: &str) -> Option<String> {
     let body = serde_json::json!({
         "model": model,
-        "prompt": format!("Answer in one concise sentence, no preamble: {}", text),
+        "prompt": prompt,
         "stream": false
     });
     let agent = ureq::AgentBuilder::new()
@@ -232,10 +252,24 @@ fn llm_reply(text: &str, model: &str) -> Option<String> {
         .set("Content-Type", "application/json")
         .send_string(&body.to_string())
         .ok()?;
-    let resp_body = resp.into_string().ok()?;
-    let json: serde_json::Value = serde_json::from_str(&resp_body).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&resp.into_string().ok()?).ok()?;
     let reply = json["response"].as_str()?.trim().to_string();
     if reply.is_empty() { None } else { Some(reply) }
+}
+
+fn llm_reply(text: &str, model: &str, trigger: &LlmTrigger, classifier_prompt: &str) -> Option<String> {
+    let should_reply = match trigger {
+        LlmTrigger::Off      => return None,
+        LlmTrigger::Always   => true,
+        LlmTrigger::Heuristic => text.contains('?'),
+        LlmTrigger::Classifier => {
+            let prompt = classifier_prompt.replace("{thought}", text);
+            let verdict = ollama_call(model, &prompt)?;
+            verdict.to_lowercase().starts_with("yes")
+        }
+    };
+    if !should_reply { return None; }
+    ollama_call(model, &format!("Answer in one concise sentence, no preamble: {}", text))
 }
 
 pub(crate) fn do_capture(text: &str, config: &Config) -> Result<(String, String, Option<String>), String> {
@@ -255,7 +289,7 @@ pub(crate) fn do_capture(text: &str, config: &Config) -> Result<(String, String,
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|| "???????".to_string());
-    let reply = if config.llm { llm_reply(text, &config.llm_model) } else { None };
+    let reply = if config.llm { llm_reply(text, &config.llm_model, &config.llm_trigger, &config.llm_classifier_prompt) } else { None };
     Ok((hash, ts, reply))
 }
 

@@ -26,7 +26,7 @@ llm_trigger = "heuristic"
 
 # Classifier prompt used when llm_trigger = "classifier"
 # {thought} is replaced with the captured text
-llm_classifier_prompt = "Does this thought warrant a brief reply? The answer is most likely no. Only say 'yes' for direct questions or thoughts that clearly invite a response. Answer only 'yes' or 'no': {thought}"
+llm_classifier_prompt = "Does this thought warrant a brief reply? Say 'yes' for questions or thoughts that invite a response, 'no' for plain statements or observations. Answer only 'yes' or 'no': {thought}"
 
 # Terminal color theme for `hm view` and the TUI editor
 #   laptop  — full color (default)
