@@ -456,6 +456,9 @@ fn cmd_search(query: &str) -> Result<(), String> {
 }
 
 fn cmd_view(path: &str) -> Result<(), String> {
+    if !path.ends_with(".md") {
+        return Err(format!("'{}' is not a markdown file — hm view only supports .md files", path));
+    }
     let config = load_config()?;
     let expanded = expand_tilde(path);
     let content = fs::read_to_string(&expanded)
