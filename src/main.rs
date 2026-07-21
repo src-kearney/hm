@@ -36,8 +36,6 @@ enum Commands {
     Search { query: String },
     /// View a markdown file
     View { path: String },
-    /// Open the interactive TUI
-    Tui,
     /// Show commit history of the notes file
     Log {
         #[arg(short = 'n', long, default_value = "20")]
@@ -830,6 +828,14 @@ fn cmd_log(count: usize) -> Result<(), String> {
 }
 
 fn main() {
+    if std::env::args().len() == 1 {
+        if let Err(e) = tui::run() {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+        return;
+    }
+
     let cli = Cli::parse();
     let result = match cli.command {
         Commands::Ls { count } => cmd_ls(count),
@@ -838,7 +844,6 @@ fn main() {
         Commands::Push => cmd_push(),
         Commands::Search { query } => cmd_search(&query),
         Commands::View { path } => cmd_view(&path),
-        Commands::Tui => tui::run(),
         Commands::Log { count } => cmd_log(count),
         Commands::Pull => cmd_pull(),
         Commands::Migrate => cmd_migrate(),
