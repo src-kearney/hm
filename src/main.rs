@@ -43,8 +43,6 @@ enum Commands {
     },
     /// Pull latest changes from remote
     Pull,
-    /// Migrate notes file to current markdown format
-    Migrate,
     /// View or set config values
     Config {
         #[command(subcommand)]
@@ -783,27 +781,6 @@ fn cmd_pull() -> Result<(), String> {
     git_passthrough(&config.repo, &["pull", "--rebase"])
 }
 
-fn cmd_migrate() -> Result<(), String> {
-    let config = load_config()?;
-    let path = hm_path(&config);
-    let content = fs::read_to_string(&path).unwrap_or_default();
-    let entries = parse_entries(&content);
-    if entries.is_empty() {
-        println!("Nothing to migrate.");
-        return Ok(());
-    }
-    let new_content: String = entries.iter().map(|(ts, text)| format_entry(ts, text)).collect();
-    if new_content == content {
-        println!("Already up to date.");
-        return Ok(());
-    }
-    fs::write(&path, &new_content).map_err(|e| format!("Failed to write: {}", e))?;
-    git_silent(&config.repo, &["add", &config.file])?;
-    git_silent(&config.repo, &["commit", "-m", "migrate: reformat entries to markdown"])?;
-    println!("Migrated {} entries.", entries.len());
-    Ok(())
-}
-
 fn cmd_log(count: usize) -> Result<(), String> {
     let config = load_config()?;
     let out = Command::new("git")
@@ -846,7 +823,6 @@ fn main() {
         Commands::View { path } => cmd_view(&path),
         Commands::Log { count } => cmd_log(count),
         Commands::Pull => cmd_pull(),
-        Commands::Migrate => cmd_migrate(),
         Commands::Config { cmd } => match cmd {
             ConfigCmd::Ls => cmd_config_ls(),
             ConfigCmd::Set { key, value } => cmd_config_set(&key, &value),
