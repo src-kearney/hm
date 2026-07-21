@@ -441,115 +441,33 @@ pub(crate) fn do_push(config: &Config) -> Result<(), String> {
 
 // --- CLI command handlers ---
 
-fn load_word_pool(path: &Path) -> Vec<String> {
-    const STOP: &[&str] = &[
-        "the","and","for","are","but","not","you","all","can","was","one","our","out",
-        "get","has","him","his","how","its","may","new","now","see","two","way","who",
-        "did","she","too","use","that","with","have","this","from","they","know","want",
-        "been","good","much","some","time","very","when","come","here","just","like",
-        "long","make","many","more","only","over","such","take","than","them","well",
-        "were","what","your","into","also","back","even","most","will","about","would",
-        "there","their","could","other","these","those","after","where","which","while",
-        "being","doing","each","then","should","through","because","before",
-    ];
-    let content = fs::read_to_string(path).unwrap_or_default();
-    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    for raw in content.split_whitespace() {
-        for part in raw.split(|c: char| !c.is_alphabetic()) {
-            let w = part.to_lowercase();
-            if w.len() >= 4 && !STOP.contains(&w.as_str()) {
-                *counts.entry(w).or_insert(0) += 1;
-            }
-        }
-    }
-    let mut pool = Vec::new();
-    for (word, count) in counts {
-        for _ in 0..count.min(4) {
-            pool.push(word.clone());
-        }
-    }
-    pool
-}
-
-fn word_cloud_loader<F: FnOnce() -> Option<String>>(pool: Vec<String>, f: F) -> Option<String> {
-    if pool.is_empty() {
-        return f();
-    }
-
-    const ROWS: usize = 1;
+fn loading_animation<T, F: FnOnce() -> T>(f: F) -> T {
     const WIDTH: usize = 88;
-    const SLOTS: &[(usize, usize)] = &[
-        (0, 1), (0, 13), (0, 27), (0, 41), (0, 55), (0, 69),
-    ];
+    const BARS: &[char] = &[' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
-    for _ in 0..ROWS { eprintln!(); }
+    eprintln!();
     let _ = std::io::stderr().flush();
 
     let done = Arc::new(AtomicBool::new(false));
     let done_clone = done.clone();
 
     let handle = std::thread::spawn(move || {
-        let seed = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.subsec_nanos() as u64)
-            .unwrap_or(42);
-        let mut state = seed;
-        let mut rng = move |n: usize| -> usize {
-            state = state.wrapping_mul(6364136223846793005)
-                         .wrapping_add(1442695040888963407);
-            (state >> 33) as usize % n
-        };
-
-        struct Slot { row: usize, col: usize, word: String, life: usize, visible: bool }
-        let mut slots: Vec<Slot> = SLOTS.iter().map(|&(row, col)| {
-            Slot { row, col, word: String::new(), life: 0, visible: false }
-        }).collect();
-
-        // shuffle reveal order
-        for i in (1..slots.len()).rev() {
-            let j = rng(i + 1);
-            slots.swap(i, j);
-        }
-
-        let mut reveal_idx = 0usize;
-
+        let mut phase = 0.0f64;
         loop {
-            if reveal_idx < slots.len() {
-                let idx = rng(pool.len());
-                slots[reveal_idx].word = pool[idx].clone();
-                slots[reveal_idx].life = rng(4) + 6;
-                slots[reveal_idx].visible = true;
-                reveal_idx += 1;
+            let mut line = String::with_capacity(WIDTH);
+            for x in 0..WIDTH {
+                let v = ((x as f64 * 0.22 + phase).sin()
+                       + (x as f64 * 0.13 + phase * 1.4).sin()) / 2.0;
+                let v = (v + 1.0) / 2.0;
+                let idx = ((v * (BARS.len() - 1) as f64).round() as usize).min(BARS.len() - 1);
+                line.push(BARS[idx]);
             }
-
-            let mut grid: Vec<Vec<char>> = vec![vec![' '; WIDTH]; ROWS];
-            for slot in slots.iter().filter(|s| s.visible) {
-                for (i, ch) in slot.word.chars().enumerate() {
-                    let c = slot.col + i;
-                    if c < WIDTH { grid[slot.row][c] = ch; }
-                }
-            }
-
-            eprint!("\x1b[{}A\r", ROWS);
-            for row in &grid {
-                eprintln!("{}", row.iter().collect::<String>());
-            }
+            eprint!("\x1b[1A\r{}\n", line);
             let _ = std::io::stderr().flush();
 
             if done_clone.load(Ordering::Relaxed) { break; }
-
-            if reveal_idx >= slots.len() {
-                for slot in &mut slots {
-                    if slot.life > 0 { slot.life -= 1; }
-                    if slot.life == 0 {
-                        let idx = rng(pool.len());
-                        slot.word = pool[idx].clone();
-                        slot.life = rng(4) + 6;
-                    }
-                }
-            }
-
-            std::thread::sleep(std::time::Duration::from_millis(350));
+            phase += 0.18;
+            std::thread::sleep(std::time::Duration::from_millis(50));
         }
     });
 
@@ -557,12 +475,7 @@ fn word_cloud_loader<F: FnOnce() -> Option<String>>(pool: Vec<String>, f: F) -> 
     done.store(true, Ordering::Relaxed);
     let _ = handle.join();
 
-    eprint!("\x1b[{}A\r", ROWS);
-    for _ in 0..ROWS { eprintln!("{}", " ".repeat(WIDTH)); }
-
-    let output_lines = if result.is_some() { 2usize } else { 1 };
-    let center_row = (ROWS - output_lines) / 2;
-    eprint!("\x1b[{}A\r", ROWS - center_row);
+    eprint!("\x1b[1A\r{}\x1b[1A\r", " ".repeat(WIDTH));
     let _ = std::io::stderr().flush();
 
     result
@@ -575,20 +488,22 @@ fn cmd_capture(parts: &[String]) -> Result<(), String> {
     let text = parts.join(" ");
     let text = text.trim();
     let config = load_config()?;
-    let summary = commit_summary(text, &config);
-    let (hash, ts) = do_commit(text, &summary, &config)?;
-    let reply = if config.llm {
-        let pool = load_word_pool(&hm_path(&config));
-        let model = config.llm_model.clone();
-        let trigger = config.llm_trigger.clone();
-        let classifier_prompt = config.llm_classifier_prompt.clone();
+
+    let (hash, ts, reply) = if config.llm {
         let text_owned = text.to_string();
-        word_cloud_loader(pool, move || {
-            llm_reply(&text_owned, &model, &trigger, &classifier_prompt)
-        })
+        loading_animation(move || -> Result<(String, String, Option<String>), String> {
+            let config = load_config()?;
+            let summary = commit_summary(&text_owned, &config);
+            let (hash, ts) = do_commit(&text_owned, &summary, &config)?;
+            let reply = llm_reply(&text_owned, &config.llm_model, &config.llm_trigger, &config.llm_classifier_prompt);
+            Ok((hash, ts, reply))
+        })?
     } else {
-        None
+        let summary = commit_summary(text, &config);
+        let (hash, ts) = do_commit(text, &summary, &config)?;
+        (hash, ts, None)
     };
+
     println!("{}  {}{}{}", hash, ts, SEP, text);
     if let Some(r) = reply {
         println!("  \u{2192} {}", r);
