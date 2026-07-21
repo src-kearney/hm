@@ -43,6 +43,23 @@ enum Commands {
     },
     /// Pull latest changes from remote
     Pull,
+    /// Create a new encrypted draft post
+    Write {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        title: Vec<String>,
+    },
+    /// Draft management
+    Draft {
+        #[command(subcommand)]
+        cmd: DraftCmd,
+    },
+    /// Publish a draft to the blog repo
+    Publish { slug: String },
+    /// Blog repo management
+    Blog {
+        #[command(subcommand)]
+        cmd: BlogCmd,
+    },
     /// View or set config values
     Config {
         #[command(subcommand)]
@@ -59,6 +76,22 @@ enum ConfigCmd {
     Ls,
     /// Set a config value
     Set { key: String, value: String },
+}
+
+#[derive(Subcommand)]
+enum DraftCmd {
+    /// List all drafts
+    Ls,
+}
+
+#[derive(Subcommand)]
+enum BlogCmd {
+    /// List published posts
+    Ls,
+    /// Push blog repo to remote
+    Push,
+    /// Move a published post back to drafts
+    Demote { slug: String },
 }
 
 pub(crate) enum Theme {
@@ -83,6 +116,8 @@ pub(crate) struct Config {
     pub(crate) llm_trigger: LlmTrigger,
     pub(crate) llm_classifier_prompt: String,
     pub(crate) theme: Theme,
+    pub(crate) blog_repo: Option<PathBuf>,
+    pub(crate) age_key: Option<PathBuf>,
 }
 
 const LLM_ENDPOINT: &str = "http://localhost:11434/api/generate";
@@ -129,6 +164,8 @@ pub(crate) fn load_config() -> Result<Config, String> {
     let mut llm_trigger = String::new();
     let mut llm_classifier_prompt = String::new();
     let mut theme = String::new();
+    let mut blog_repo = String::new();
+    let mut age_key = String::new();
 
     for line in content.lines() {
         let line = line.trim();
@@ -146,6 +183,8 @@ pub(crate) fn load_config() -> Result<Config, String> {
                 "llm_trigger" => llm_trigger = v.to_string(),
                 "llm_classifier_prompt" => llm_classifier_prompt = v.to_string(),
                 "theme" => theme = v.to_string(),
+                "blog_repo" => blog_repo = v.to_string(),
+                "age_key" => age_key = v.to_string(),
                 _ => {}
             }
         }
@@ -173,6 +212,8 @@ pub(crate) fn load_config() -> Result<Config, String> {
             llm_classifier_prompt
         },
         theme: if theme == "eink" { Theme::Eink } else { Theme::Laptop },
+        blog_repo: if blog_repo.is_empty() { None } else { Some(expand_tilde(&blog_repo)) },
+        age_key: if age_key.is_empty() { None } else { Some(expand_tilde(&age_key)) },
     })
 }
 
@@ -781,6 +822,289 @@ fn cmd_pull() -> Result<(), String> {
     git_passthrough(&config.repo, &["pull", "--rebase"])
 }
 
+// --- blog helpers ---
+
+fn slugify(title: &str) -> String {
+    title.to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+fn age_public_key(key_path: &Path) -> Result<String, String> {
+    let content = fs::read_to_string(key_path)
+        .map_err(|_| format!("age key not found at {}", key_path.display()))?;
+    content.lines()
+        .find(|l| l.starts_with("# public key: "))
+        .map(|l| l["# public key: ".len()..].to_string())
+        .ok_or_else(|| "Could not parse public key from age key file".to_string())
+}
+
+fn age_encrypt(input: &Path, output: &Path, pubkey: &str) -> Result<(), String> {
+    let status = Command::new("age")
+        .args(["-r", pubkey, "-o"])
+        .arg(output)
+        .arg(input)
+        .status()
+        .map_err(|e| format!("Failed to run age: {}", e))?;
+    if status.success() { Ok(()) } else { Err("age encryption failed".to_string()) }
+}
+
+fn age_decrypt(input: &Path, output: &Path, key_path: &Path) -> Result<(), String> {
+    let status = Command::new("age")
+        .args(["-d", "-i"])
+        .arg(key_path)
+        .args(["-o"])
+        .arg(output)
+        .arg(input)
+        .status()
+        .map_err(|e| format!("Failed to run age: {}", e))?;
+    if status.success() { Ok(()) } else { Err("age decryption failed".to_string()) }
+}
+
+fn open_editor(path: &Path) -> Result<(), String> {
+    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vim".to_string());
+    Command::new(&editor)
+        .arg(path)
+        .status()
+        .map_err(|e| format!("Failed to launch {}: {}", editor, e))?;
+    Ok(())
+}
+
+fn blog_dir(config: &Config) -> Result<PathBuf, String> {
+    config.blog_repo.as_ref()
+        .map(|p| p.join("blog"))
+        .ok_or_else(|| "blog_repo not set in config; add it with `hm config set blog_repo <path>`".to_string())
+}
+
+fn require_age_key(config: &Config) -> Result<PathBuf, String> {
+    config.age_key.clone()
+        .ok_or_else(|| "age_key not set in config; add it with `hm config set age_key ~/.config/hm/age.key`".to_string())
+}
+
+fn read_manifest(blog: &Path) -> Result<serde_json::Value, String> {
+    let path = blog.join("manifest.json");
+    let content = fs::read_to_string(&path)
+        .map_err(|_| "manifest.json not found in blog repo".to_string())?;
+    serde_json::from_str(&content).map_err(|e| format!("Failed to parse manifest: {}", e))
+}
+
+fn write_manifest(blog: &Path, manifest: &serde_json::Value) -> Result<(), String> {
+    let content = serde_json::to_string_pretty(manifest)
+        .map_err(|e| format!("Failed to serialize manifest: {}", e))?;
+    fs::write(blog.join("manifest.json"), content + "\n")
+        .map_err(|e| format!("Failed to write manifest: {}", e))
+}
+
+fn cmd_write(title_parts: &[String]) -> Result<(), String> {
+    if title_parts.is_empty() {
+        return Err("Provide a title.".to_string());
+    }
+    let title = title_parts.join(" ");
+    let slug = slugify(&title);
+    let config = load_config()?;
+    let blog = blog_dir(&config)?;
+    let key_path = require_age_key(&config)?;
+    let pubkey = age_public_key(&key_path)?;
+
+    let drafts_dir = blog.join("drafts");
+    fs::create_dir_all(&drafts_dir)
+        .map_err(|e| format!("Failed to create drafts dir: {}", e))?;
+
+    let encrypted_path = drafts_dir.join(format!("{}.json.age", slug));
+    if encrypted_path.exists() {
+        return Err(format!("Draft '{}' already exists.", slug));
+    }
+
+    let date = Local::now().format("%Y-%m-%d").to_string();
+    let skeleton = serde_json::json!({
+        "slug": slug,
+        "title": title,
+        "date": date,
+        "tags": [],
+        "chunks": [{ "type": "text", "content": [""] }]
+    });
+    let tmp = std::env::temp_dir().join(format!("hm-{}.json", slug));
+    fs::write(&tmp, serde_json::to_string_pretty(&skeleton).unwrap())
+        .map_err(|e| format!("Failed to write temp file: {}", e))?;
+
+    open_editor(&tmp)?;
+
+    age_encrypt(&tmp, &encrypted_path, &pubkey)?;
+    let _ = fs::remove_file(&tmp);
+
+    // update manifest
+    let mut manifest = read_manifest(&blog)?;
+    let next_id = manifest.as_array()
+        .map(|a| a.len() + 1)
+        .unwrap_or(1)
+        .to_string();
+    let entry = serde_json::json!({
+        "id": next_id,
+        "slug": slug,
+        "name": title,
+        "timestamp": format!("{}T00:00:00Z", date),
+        "tags": [],
+        "type": "blog",
+        "published": false
+    });
+    manifest.as_array_mut()
+        .ok_or("manifest is not an array")?
+        .push(entry);
+    write_manifest(&blog, &manifest)?;
+
+    let blog_repo = config.blog_repo.as_ref().unwrap();
+    git_silent(blog_repo, &["add", "blog/"])?;
+    git_silent(blog_repo, &["commit", "-m", &format!("draft: {}", title)])?;
+
+    println!("draft: {}", slug);
+    Ok(())
+}
+
+fn cmd_draft_ls() -> Result<(), String> {
+    let config = load_config()?;
+    let blog = blog_dir(&config)?;
+    let manifest = read_manifest(&blog)?;
+    let empty = vec![];
+    let drafts: Vec<&serde_json::Value> = manifest.as_array()
+        .unwrap_or(&empty)
+        .iter()
+        .filter(|e| e["published"] != true)
+        .collect();
+    if drafts.is_empty() {
+        println!("No drafts.");
+        return Ok(());
+    }
+    for d in drafts {
+        let slug = d["slug"].as_str().unwrap_or("?");
+        let name = d["name"].as_str().unwrap_or("?");
+        let ts = d["timestamp"].as_str().unwrap_or("?").get(..10).unwrap_or("?");
+        println!("{}  {}  {}", ts, slug, name);
+    }
+    Ok(())
+}
+
+fn cmd_publish(slug: &str) -> Result<(), String> {
+    let config = load_config()?;
+    let blog = blog_dir(&config)?;
+    let key_path = require_age_key(&config)?;
+
+    let encrypted_path = blog.join("drafts").join(format!("{}.json.age", slug));
+    if !encrypted_path.exists() {
+        return Err(format!("Draft '{}' not found.", slug));
+    }
+
+    let published_path = blog.join(format!("{}.json", slug));
+    age_decrypt(&encrypted_path, &published_path, &key_path)?;
+    fs::remove_file(&encrypted_path)
+        .map_err(|e| format!("Failed to remove draft: {}", e))?;
+
+    let mut manifest = read_manifest(&blog)?;
+    let title = manifest.as_array_mut()
+        .ok_or("manifest is not an array")?
+        .iter_mut()
+        .find(|e| e["slug"].as_str() == Some(slug))
+        .map(|e| {
+            e["published"] = serde_json::Value::Bool(true);
+            e["name"].as_str().unwrap_or(slug).to_string()
+        })
+        .ok_or_else(|| format!("'{}' not found in manifest.", slug))?;
+    write_manifest(&blog, &manifest)?;
+
+    let blog_repo = config.blog_repo.as_ref().unwrap();
+    git_silent(blog_repo, &["add", "blog/"])?;
+    git_silent(blog_repo, &["commit", "-m", &format!("publish: {}", title)])?;
+
+    println!("publish: {}", slug);
+    Ok(())
+}
+
+fn cmd_blog_demote(slug: &str) -> Result<(), String> {
+    let config = load_config()?;
+    let blog = blog_dir(&config)?;
+    let key_path = require_age_key(&config)?;
+    let pubkey = age_public_key(&key_path)?;
+
+    let published_path = blog.join(format!("{}.json", slug));
+    if !published_path.exists() {
+        return Err(format!("Published post '{}' not found.", slug));
+    }
+
+    let drafts_dir = blog.join("drafts");
+    fs::create_dir_all(&drafts_dir)
+        .map_err(|e| format!("Failed to create drafts dir: {}", e))?;
+    let encrypted_path = drafts_dir.join(format!("{}.json.age", slug));
+
+    age_encrypt(&published_path, &encrypted_path, &pubkey)?;
+    fs::remove_file(&published_path)
+        .map_err(|e| format!("Failed to remove published post: {}", e))?;
+
+    let mut manifest = read_manifest(&blog)?;
+    let title = manifest.as_array_mut()
+        .ok_or("manifest is not an array")?
+        .iter_mut()
+        .find(|e| e["slug"].as_str() == Some(slug))
+        .map(|e| {
+            e["published"] = serde_json::Value::Bool(false);
+            e["name"].as_str().unwrap_or(slug).to_string()
+        })
+        .ok_or_else(|| format!("'{}' not found in manifest.", slug))?;
+    write_manifest(&blog, &manifest)?;
+
+    let blog_repo = config.blog_repo.as_ref().unwrap();
+    git_silent(blog_repo, &["add", "blog/"])?;
+    git_silent(blog_repo, &["commit", "-m", &format!("draft: {}", title)])?;
+
+    println!("demoted: {}", slug);
+    Ok(())
+}
+
+fn cmd_blog_ls() -> Result<(), String> {
+    let config = load_config()?;
+    let blog = blog_dir(&config)?;
+    let manifest = read_manifest(&blog)?;
+    let empty = vec![];
+    let posts: Vec<&serde_json::Value> = manifest.as_array()
+        .unwrap_or(&empty)
+        .iter()
+        .filter(|e| e["published"] == true)
+        .collect();
+    if posts.is_empty() {
+        println!("No published posts.");
+        return Ok(());
+    }
+    for p in posts {
+        let slug = p["slug"].as_str().unwrap_or("?");
+        let name = p["name"].as_str().unwrap_or("?");
+        let ts = p["timestamp"].as_str().unwrap_or("?").get(..10).unwrap_or("?");
+        println!("{}  {}  {}", ts, slug, name);
+    }
+    Ok(())
+}
+
+fn cmd_blog_push() -> Result<(), String> {
+    let config = load_config()?;
+    let blog_repo = config.blog_repo.as_ref()
+        .ok_or("blog_repo not set in config")?;
+    if git_silent(blog_repo, &["push"]).is_err() {
+        git_silent(blog_repo, &["push", "-u", "origin", "HEAD"])?;
+    }
+    let remote = Command::new("git")
+        .current_dir(blog_repo)
+        .args(["remote", "get-url", "origin"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "remote".to_string());
+    println!("Pushed → {}", remote);
+    Ok(())
+}
+
 fn cmd_log(count: usize) -> Result<(), String> {
     let config = load_config()?;
     let out = Command::new("git")
@@ -823,6 +1147,16 @@ fn main() {
         Commands::View { path } => cmd_view(&path),
         Commands::Log { count } => cmd_log(count),
         Commands::Pull => cmd_pull(),
+        Commands::Write { title } => cmd_write(&title),
+        Commands::Draft { cmd } => match cmd {
+            DraftCmd::Ls => cmd_draft_ls(),
+        },
+        Commands::Publish { slug } => cmd_publish(&slug),
+        Commands::Blog { cmd } => match cmd {
+            BlogCmd::Ls => cmd_blog_ls(),
+            BlogCmd::Push => cmd_blog_push(),
+            BlogCmd::Demote { slug } => cmd_blog_demote(&slug),
+        },
         Commands::Config { cmd } => match cmd {
             ConfigCmd::Ls => cmd_config_ls(),
             ConfigCmd::Set { key, value } => cmd_config_set(&key, &value),

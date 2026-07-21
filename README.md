@@ -7,6 +7,7 @@
 Minimal thought-capture CLI. Writes to a single markdown file in a git repo.
 
 ```
+hm                       # open TUI
 hm "some thought"        # capture
 hm ls                    # list recent entries (with commit hash IDs)
 hm log                   # show full commit history of notes file
@@ -14,17 +15,25 @@ hm delete <hash>         # delete entry by commit hash
 hm search <query>        # search entries (case-insensitive)
 hm view <file>           # view a markdown file
 hm push                  # push to remote
-hm tui                   # interactive TUI
+hm pull                  # pull from remote
 hm config ls             # show all config values
 hm config set <key> <v>  # set a config value
 hm init --repo <url>     # first-time setup
+hm write "title"         # new encrypted draft, opens $EDITOR
+hm draft ls              # list drafts
+hm publish <slug>        # publish a draft to blog repo
+hm blog ls               # list published posts
+hm blog push             # push blog repo to remote
+hm blog demote <slug>    # move a published post back to drafts
 ```
 
 ## setup
 
 ```bash
+brew install age          # encryption for drafts
 cargo install --path .
 hm init --repo git@github.com:you/your-notes-repo.git
+age-keygen -o ~/.config/hm/age.key
 ```
 
 Creates `~/.local/share/hm` (cloned repo) and `~/.config/hm/config.toml`. See [`config.example.toml`](config.example.toml) for all available options.

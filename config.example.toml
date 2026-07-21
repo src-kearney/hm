@@ -32,3 +32,10 @@ llm_classifier_prompt = "Does this thought warrant a brief reply? Say 'yes' for 
 #   laptop  — full color (default)
 #   eink    — plain, no color
 theme = "laptop"
+
+# Path to local clone of your blog repo
+# blog_repo = "~/.local/share/hm-blog"
+
+# Path to your age private key (generate with: age-keygen -o ~/.config/hm/age.key)
+# Drafts are encrypted with the public key embedded in this file
+# age_key = "~/.config/hm/age.key"
