@@ -178,7 +178,7 @@ pub(crate) fn load_config() -> Result<Config, String> {
                 "repo" => repo = v.to_string(),
                 "file" => file = v.to_string(),
                 "remote" => remote = v.to_string(),
-                "llm" => llm = v == "true",
+                "ollama" | "llm" => llm = v == "true",
                 "llm_model" => llm_model = v.to_string(),
                 "llm_trigger" => llm_trigger = v.to_string(),
                 "llm_classifier_prompt" => llm_classifier_prompt = v.to_string(),

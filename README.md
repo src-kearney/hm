@@ -69,32 +69,7 @@ Pushed → https://github.com/src-kearney/thoughts.git
 
 Double quotes `"` are required when the thought contains shell special characters like `?`.
 
-## llm replies
-
-With `llm = true` in `~/.config/hm/config.toml`, captured thoughts can trigger a local LLM reply via [Ollama](https://ollama.com). Install Ollama, run `ollama pull <model>`, then set `llm_model` to any pulled model (default: `llama3.2`).
-
-```toml
-llm = true
-llm_model = "mistral"       # any model from ollama.com/library
-llm_trigger = "heuristic"   # heuristic | classifier | always | off
-```
-
-`llm_trigger` controls when a reply fires:
-
-| value | behavior |
-|---|---|
-| `heuristic` | reply only if thought contains `?` (default) |
-| `classifier` | ask the LLM whether a reply is warranted before replying |
-| `always` | reply to every captured thought |
-| `off` | never reply (equivalent to `llm = false`) |
-
-When `llm_trigger = "classifier"`, the prompt sent to the LLM defaults to:
-
-```
-Does this thought warrant a brief reply? Say 'yes' for questions or thoughts that invite a response, 'no' for plain statements or observations. Answer only 'yes' or 'no': {thought}
-```
-
-Override it with `llm_classifier_prompt` in config. Use `{thought}` as the placeholder for the captured text.
+Thoughts with `?` get a reply from [ollama](https://ollama.com). Set `ollama = true` in config. 
 
 ## commit log format
 
