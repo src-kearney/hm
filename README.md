@@ -19,12 +19,13 @@ hm pull                  # pull from remote
 hm config ls             # show all config values
 hm config set <key> <v>  # set a config value
 hm init --repo <url>     # first-time setup
-hm write "title"         # new encrypted draft, opens $EDITOR
+hm draft create "title"  # new encrypted draft, opens $EDITOR
 hm draft ls              # list drafts
 hm publish <slug>        # publish a draft to blog repo
 hm blog ls               # list published posts
 hm blog push             # push blog repo to remote
 hm blog demote <slug>    # move a published post back to drafts
+hm quiz [name]           # quiz yourself on a study source
 ```
 
 ## setup

@@ -2,7 +2,7 @@ use chrono::Local;
 use clap::{Parser, Subcommand};
 use std::env;
 use std::fs;
-use std::io::Write;
+use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
@@ -19,52 +19,68 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// List recent entries
+    #[command(display_order = 1, next_help_heading = "Notes")]
     Ls {
         #[arg(short = 'n', long, default_value = "20")]
         count: usize,
     },
-    /// Clone a repo and write config
-    Init {
-        #[arg(long)]
-        repo: String,
-    },
-    /// Delete an entry by commit hash
-    Delete { hash: String },
-    /// Push commits to remote
-    Push,
     /// Search entries
+    #[command(display_order = 2, next_help_heading = "Notes")]
     Search { query: String },
-    /// View a markdown file
-    View { path: String },
+    /// Delete an entry by commit hash
+    #[command(display_order = 3, next_help_heading = "Notes")]
+    Delete { hash: String },
     /// Show commit history of the notes file
+    #[command(display_order = 4, next_help_heading = "Notes")]
     Log {
         #[arg(short = 'n', long, default_value = "20")]
         count: usize,
     },
-    /// Pull latest changes from remote
+    /// Push notes to remote
+    #[command(display_order = 5, next_help_heading = "Notes")]
+    Push,
+    /// Pull notes from remote
+    #[command(display_order = 6, next_help_heading = "Notes")]
     Pull,
-    /// Create a new encrypted draft post
-    Write {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        title: Vec<String>,
-    },
-    /// Draft management
+
+    /// Draft management (create, ls)
+    #[command(display_order = 10, next_help_heading = "Blog")]
     Draft {
         #[command(subcommand)]
         cmd: DraftCmd,
     },
     /// Publish a draft to the blog repo
+    #[command(display_order = 11, next_help_heading = "Blog")]
     Publish { slug: String },
-    /// Blog repo management
+    /// Blog repo management (ls, push, demote)
+    #[command(display_order = 12, next_help_heading = "Blog")]
     Blog {
         #[command(subcommand)]
         cmd: BlogCmd,
     },
+
+    /// Quiz yourself on a study source
+    #[command(display_order = 20, next_help_heading = "Study")]
+    Quiz {
+        name: Option<String>,
+    },
+
+    /// First-time setup — clone notes repo and write config
+    #[command(display_order = 30, next_help_heading = "Setup")]
+    Init {
+        #[arg(long)]
+        repo: String,
+    },
     /// View or set config values
+    #[command(display_order = 31, next_help_heading = "Setup")]
     Config {
         #[command(subcommand)]
         cmd: ConfigCmd,
     },
+    /// View a markdown file
+    #[command(display_order = 32, next_help_heading = "Setup")]
+    View { path: String },
+
     /// Capture a thought (default when no subcommand given)
     #[command(external_subcommand)]
     Capture(Vec<String>),
@@ -82,6 +98,11 @@ enum ConfigCmd {
 enum DraftCmd {
     /// List all drafts
     Ls,
+    /// Create a new encrypted draft
+    Create {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        title: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -92,6 +113,11 @@ enum BlogCmd {
     Push,
     /// Move a published post back to drafts
     Demote { slug: String },
+}
+
+pub(crate) struct StudySource {
+    pub(crate) name: String,
+    pub(crate) path: PathBuf,
 }
 
 pub(crate) enum Theme {
@@ -118,6 +144,7 @@ pub(crate) struct Config {
     pub(crate) theme: Theme,
     pub(crate) blog_repo: Option<PathBuf>,
     pub(crate) age_key: Option<PathBuf>,
+    pub(crate) study: Vec<StudySource>,
 }
 
 const LLM_ENDPOINT: &str = "http://localhost:11434/api/generate";
@@ -166,6 +193,7 @@ pub(crate) fn load_config() -> Result<Config, String> {
     let mut theme = String::new();
     let mut blog_repo = String::new();
     let mut age_key = String::new();
+    let mut study_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
     for line in content.lines() {
         let line = line.trim();
@@ -185,6 +213,9 @@ pub(crate) fn load_config() -> Result<Config, String> {
                 "theme" => theme = v.to_string(),
                 "blog_repo" => blog_repo = v.to_string(),
                 "age_key" => age_key = v.to_string(),
+                k if k.starts_with("study.") => {
+                    study_map.insert(k["study.".len()..].to_string(), v.to_string());
+                }
                 _ => {}
             }
         }
@@ -214,6 +245,10 @@ pub(crate) fn load_config() -> Result<Config, String> {
         theme: if theme == "eink" { Theme::Eink } else { Theme::Laptop },
         blog_repo: if blog_repo.is_empty() { None } else { Some(expand_tilde(&blog_repo)) },
         age_key: if age_key.is_empty() { None } else { Some(expand_tilde(&age_key)) },
+        study: study_map.into_iter().map(|(name, path)| StudySource {
+            name,
+            path: expand_tilde(&path),
+        }).collect(),
     })
 }
 
@@ -344,13 +379,17 @@ pub(crate) fn capture_hashes(config: &Config) -> Vec<String> {
 // --- Core logic used by both CLI and TUI ---
 
 fn ollama_call(model: &str, prompt: &str) -> Option<String> {
+    ollama_call_timeout(model, prompt, 25)
+}
+
+fn ollama_call_timeout(model: &str, prompt: &str, secs: u64) -> Option<String> {
     let body = serde_json::json!({
         "model": model,
         "prompt": prompt,
         "stream": false
     });
     let agent = ureq::AgentBuilder::new()
-        .timeout(std::time::Duration::from_secs(25))
+        .timeout(std::time::Duration::from_secs(secs))
         .build();
     let resp = agent
         .post(LLM_ENDPOINT)
@@ -678,10 +717,15 @@ fn cmd_config_ls() -> Result<(), String> {
         ("llm_classifier_prompt", config.llm_classifier_prompt.clone()),
         ("theme",                 theme.to_string()),
     ];
-    let key_width = values.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
-    let val_width = values.iter().map(|(_, v)| v.len().min(40)).max().unwrap_or(0);
-    for (key, val) in values {
-        let hint = CONFIG_KEYS.iter().find(|(k, _)| *k == *key).map(|(_, h)| *h).unwrap_or("");
+    let mut all: Vec<(String, String, &str)> = values.iter()
+        .map(|(k, v)| (k.to_string(), v.clone(), CONFIG_KEYS.iter().find(|(ck, _)| ck == k).map(|(_, h)| *h).unwrap_or("")))
+        .collect();
+    for s in &config.study {
+        all.push((format!("study.{}", s.name), s.path.display().to_string(), "path"));
+    }
+    let key_width = all.iter().map(|(k, _, _)| k.len()).max().unwrap_or(0);
+    let val_width = all.iter().map(|(_, v, _)| v.len().min(40)).max().unwrap_or(0);
+    for (key, val, hint) in &all {
         let display_val = if val.len() > 40 { format!("{}…", &val[..39]) } else { val.clone() };
         println!("{:<kw$}  =  {:<vw$}  [{}]", key, display_val, hint, kw = key_width, vw = val_width);
     }
@@ -690,7 +734,7 @@ fn cmd_config_ls() -> Result<(), String> {
 
 fn cmd_config_set(key: &str, value: &str) -> Result<(), String> {
     let valid_keys: Vec<&str> = CONFIG_KEYS.iter().map(|(k, _)| *k).collect();
-    if !valid_keys.contains(&key) {
+    if !valid_keys.contains(&key) && !key.starts_with("study.") {
         return Err(format!(
             "Unknown config key '{}'. Valid keys: {}",
             key, valid_keys.join(", ")
@@ -1020,6 +1064,106 @@ fn cmd_blog_push() -> Result<(), String> {
     Ok(())
 }
 
+fn read_study_content(path: &Path) -> String {
+    let mut parts: Vec<String> = Vec::new();
+
+    let readme = path.join("README.md");
+    if readme.exists() {
+        parts.push(fs::read_to_string(&readme).unwrap_or_default());
+    }
+
+    let docs = path.join("docs");
+    if docs.is_dir() {
+        if let Ok(entries) = fs::read_dir(&docs) {
+            let mut files: Vec<_> = entries.flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().map(|e| e == "md").unwrap_or(false))
+                .collect();
+            files.sort();
+            for f in files {
+                parts.push(fs::read_to_string(&f).unwrap_or_default());
+            }
+        }
+    }
+
+    let combined = parts.join("\n\n");
+    if combined.len() > 12000 { combined[..12000].to_string() } else { combined }
+}
+
+fn cmd_quiz(name: Option<&str>) -> Result<(), String> {
+    let config = load_config()?;
+
+    if config.study.is_empty() {
+        return Err("No study sources configured. Add `study.<name> = \"<path>\"` to ~/.config/hm/config.toml".to_string());
+    }
+
+    let sources: Vec<&StudySource> = if let Some(n) = name {
+        let s = config.study.iter().find(|s| s.name == n)
+            .ok_or_else(|| format!("Study source '{}' not found. Available: {}",
+                n, config.study.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(", ")))?;
+        vec![s]
+    } else {
+        config.study.iter().collect()
+    };
+
+    for source in sources {
+        let content = read_study_content(&source.path);
+        if content.is_empty() {
+            eprintln!("No content found at {}", source.path.display());
+            continue;
+        }
+
+        let prompt = format!(
+            "Generate 5 quiz questions and answers about the core algorithms, concepts, \
+             data structures, and non-obvious gotchas in the following technical content on {}. \
+             Avoid questions about build steps, installation, or running commands. \
+             Focus on: how things work, why design decisions were made, subtle invariants, \
+             mathematical or algorithmic properties, and things that would trip up someone \
+             implementing or extending this system.\n\
+             Format strictly as:\nQ: <question>\nA: <answer>\n\n\
+             Repeat for all 5. Output only Q/A pairs, nothing else.\n\nContent:\n{}",
+            source.name, content
+        );
+
+        let model = config.llm_model.clone();
+        let response = loading_animation(|| ollama_call_timeout(&model, &prompt, 120))
+            .ok_or("Ollama did not respond. Is it running?")?;
+
+        let mut pairs: Vec<(String, String)> = Vec::new();
+        let mut current_q: Option<String> = None;
+        for line in response.lines() {
+            let line = line.trim();
+            if let Some(q) = line.strip_prefix("Q:") {
+                current_q = Some(q.trim().to_string());
+            } else if let Some(a) = line.strip_prefix("A:") {
+                if let Some(q) = current_q.take() {
+                    pairs.push((q, a.trim().to_string()));
+                }
+            }
+        }
+
+        if pairs.is_empty() {
+            println!("{}", response);
+            continue;
+        }
+
+        let stdin = std::io::stdin();
+        let mut buf = String::new();
+        for (i, (q, a)) in pairs.iter().enumerate() {
+            println!("\n[{}/{}] {}", i + 1, pairs.len(), q);
+            print!("  [enter] reveal  [q] quit → ");
+            let _ = std::io::stdout().flush();
+            buf.clear();
+            let _ = stdin.lock().read_line(&mut buf);
+            if buf.trim() == "q" { break; }
+            println!("  {}", a);
+        }
+        println!();
+    }
+
+    Ok(())
+}
+
 fn cmd_log(count: usize) -> Result<(), String> {
     let config = load_config()?;
     let out = Command::new("git")
@@ -1062,11 +1206,12 @@ fn main() {
         Commands::View { path } => cmd_view(&path),
         Commands::Log { count } => cmd_log(count),
         Commands::Pull => cmd_pull(),
-        Commands::Write { title } => cmd_write(&title),
         Commands::Draft { cmd } => match cmd {
             DraftCmd::Ls => cmd_draft_ls(),
+            DraftCmd::Create { title } => cmd_write(&title),
         },
         Commands::Publish { slug } => cmd_publish(&slug),
+        Commands::Quiz { name } => cmd_quiz(name.as_deref()),
         Commands::Blog { cmd } => match cmd {
             BlogCmd::Ls => cmd_blog_ls(),
             BlogCmd::Push => cmd_blog_push(),
