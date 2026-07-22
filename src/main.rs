@@ -58,6 +58,11 @@ enum Commands {
     Quiz {
         name: Option<String>,
     },
+    /// Solve a coding challenge based on a repo
+    #[command(display_order = 21, next_help_heading = "Study")]
+    Challenge {
+        name: Option<String>,
+    },
 
     /// First-time setup
     #[command(display_order = 30, next_help_heading = "Setup")]
@@ -1158,6 +1163,106 @@ fn cmd_quiz(name: Option<&str>) -> Result<(), String> {
     Ok(())
 }
 
+fn cmd_challenge(name: Option<&str>) -> Result<(), String> {
+    let config = load_config()?;
+
+    if config.study.is_empty() {
+        return Err("No study sources configured. Add `study.<name> = \"<path>\"` to ~/.config/hm/config.toml".to_string());
+    }
+
+    let source = if let Some(n) = name {
+        config.study.iter().find(|s| s.name == n)
+            .ok_or_else(|| format!("Study source '{}' not found. Available: {}",
+                n, config.study.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(", ")))?
+    } else {
+        config.study.iter().next()
+            .ok_or("No study sources configured.")?
+    };
+
+    let content = read_study_content(&source.path);
+    if content.is_empty() {
+        return Err(format!("No content found at {}", source.path.display()));
+    }
+
+    let prompt = format!(
+        "Generate a hard coding challenge directly inspired by the specific algorithms, data \
+         structures, or mathematical properties in the following technical content on {}. \
+         The challenge must require understanding of the domain — not a generic problem that \
+         could appear on any coding site. Think: implementing a core subroutine, reproducing \
+         a key invariant, or working with the actual data formats or transforms described.\n\
+         \n\
+         Output ONLY raw Python code — no prose, no markdown fences, no explanation.\n\
+         Use exactly this structure:\n\
+         \n\
+         # PROBLEM: <one-line description>\n\
+         # <2-4 lines of context explaining what concept this tests>\n\
+         \n\
+         TESTS = [\n\
+             (input_value, expected_output),\n\
+             ...\n\
+         ]\n\
+         \n\
+         def solve(x):\n\
+             raise NotImplementedError\n\
+         \n\
+         Rules:\n\
+         - TESTS must be a flat list of (input, expected) 2-tuples with plain Python values (int, float, list, tuple, etc)\n\
+         - all inputs and outputs must be in-memory values — no filenames, no file I/O, no external dependencies\n\
+         - focus on the mathematical or algorithmic core, not the pipeline or I/O wrapper\n\
+         - solve takes exactly one argument\n\
+         - 4-6 test cases covering edge cases\n\
+         - do NOT implement solve — leave raise NotImplementedError\n\
+         - no imports unless essential\n\
+         - output nothing else\n\n\
+         Content:\n{}",
+        source.name, content
+    );
+
+    let model = config.llm_model.clone();
+    let raw = loading_animation(|| ollama_call_timeout(&model, &prompt, 120))
+        .ok_or("Ollama did not respond. Is it running?")?;
+
+    // Strip any leading prose and markdown fences
+    let code = raw.trim();
+    let code = if let Some(idx) = code.find("```python") {
+        let after = &code[idx + "```python".len()..];
+        after.find("```").map(|end| after[..end].trim()).unwrap_or(after.trim())
+    } else if let Some(idx) = code.find("```") {
+        let after = &code[idx + "```".len()..];
+        after.find("```").map(|end| after[..end].trim()).unwrap_or(after.trim())
+    } else {
+        code
+    };
+
+    if !code.contains("TESTS") || !code.contains("def solve") {
+        return Err(format!("Ollama returned malformed output:\n{}", code));
+    }
+
+    // Write scaffold to a temp file and open in $EDITOR
+    let tmp = std::env::temp_dir().join("hm_challenge.py");
+    fs::write(&tmp, format!("{}\n\n# --- run harness (do not edit below) ---\nif __name__ == '__main__':\n    passed = 0\n    for i, (inp, expected) in enumerate(TESTS):\n        try:\n            result = solve(inp)\n            if result == expected:\n                print(f'  [{{i+1}}/{{len(TESTS)}}] pass')\n                passed += 1\n            else:\n                print(f'  [{{i+1}}/{{len(TESTS)}}] FAIL  got={{result!r}} expected={{expected!r}}')\n        except NotImplementedError:\n            print(f'  [{{i+1}}/{{len(TESTS)}}] not implemented')\n        except Exception as e:\n            print(f'  [{{i+1}}/{{len(TESTS)}}] ERROR {{e}}')\n    print(f'\\n{{passed}}/{{len(TESTS)}} passed')\n", code))
+        .map_err(|e| e.to_string())?;
+
+    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+    Command::new(&editor)
+        .arg(&tmp)
+        .status()
+        .map_err(|e| format!("Failed to open editor: {}", e))?;
+
+    // Run it
+    let output = Command::new("python3")
+        .arg(&tmp)
+        .output()
+        .map_err(|_| "python3 not found".to_string())?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !stdout.is_empty() { print!("{}", stdout); }
+    if !stderr.is_empty() { eprint!("{}", stderr); }
+
+    Ok(())
+}
+
 fn cmd_log(count: usize) -> Result<(), String> {
     let config = load_config()?;
     let out = Command::new("git")
@@ -1212,6 +1317,7 @@ fn main() {
             PostCmd::Push => cmd_blog_push(),
         },
         Commands::Quiz { name } => cmd_quiz(name.as_deref()),
+        Commands::Challenge { name } => cmd_challenge(name.as_deref()),
         Commands::Config { cmd } => match cmd {
             ConfigCmd::Ls => cmd_config_ls(),
             ConfigCmd::Set { key, value } => cmd_config_set(&key, &value),

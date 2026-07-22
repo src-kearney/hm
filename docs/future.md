@@ -61,3 +61,16 @@ Sync the notes repo into an Obsidian vault. A community plugin watches `hm.md` f
 ```
 
 Requires some OpenFHE/HEIR tinkering and a local embedding model. Enables private remote / cloud-based search.
+
+---
+
+## coding challenges from repos
+
+`hm challenge <repo>` generates a coding challenge directly inspired by the actual algorithms, data formats, and invariants in the repo rather than generic leetcode problems. Challenges should follow the repo's own standards and require real domain understanding to solve.
+
+```
+% hm challenge seticore
+# PROBLEM: Implement de-Doppler correction for a narrowband signal
+# Given a frequency drift rate (Hz/s) and a signal array sampled at 1Hz, correct the Doppler shift so the signal appears stationary.
+...
+```
