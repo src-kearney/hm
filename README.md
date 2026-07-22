@@ -15,16 +15,16 @@ hm delete <hash>         # delete entry by commit hash
 hm search <query>        # search entries (case-insensitive)
 hm view <file>           # view a markdown file
 hm push                  # push to remote
-hm pull                  # pull from remote
 hm config ls             # show all config values
 hm config set <key> <v>  # set a config value
 hm init --repo <url>     # first-time setup
-hm draft create "title"  # new encrypted draft, opens $EDITOR
 hm draft ls              # list drafts
-hm publish <slug>        # publish a draft to blog repo
-hm blog ls               # list published posts
-hm blog push             # push blog repo to remote
-hm blog demote <slug>    # move a published post back to drafts
+hm draft create "title"  # new encrypted draft, opens $EDITOR
+hm draft promote <slug>  # publish a draft
+hm draft push            # push blog repo to remote
+hm post ls               # list published posts
+hm post demote <slug>    # move a published post back to drafts
+hm post push             # push blog repo to remote
 hm quiz [name]           # quiz yourself on a study source
 ```
 

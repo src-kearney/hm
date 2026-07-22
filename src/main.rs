@@ -39,33 +39,27 @@ enum Commands {
     /// Push notes to remote
     #[command(display_order = 5, next_help_heading = "Notes")]
     Push,
-    /// Pull notes from remote
-    #[command(display_order = 6, next_help_heading = "Notes")]
-    Pull,
 
-    /// Draft management (create, ls)
+    /// Draft management (ls, create, promote, push)
     #[command(display_order = 10, next_help_heading = "Blog")]
     Draft {
         #[command(subcommand)]
         cmd: DraftCmd,
     },
-    /// Publish a draft to the blog repo
+    /// Published post management (ls, demote, push)
     #[command(display_order = 11, next_help_heading = "Blog")]
-    Publish { slug: String },
-    /// Blog repo management (ls, push, demote)
-    #[command(display_order = 12, next_help_heading = "Blog")]
-    Blog {
+    Post {
         #[command(subcommand)]
-        cmd: BlogCmd,
+        cmd: PostCmd,
     },
 
-    /// Quiz yourself on a study source
+    /// Quiz yourself on a repo
     #[command(display_order = 20, next_help_heading = "Study")]
     Quiz {
         name: Option<String>,
     },
 
-    /// First-time setup — clone notes repo and write config
+    /// First-time setup
     #[command(display_order = 30, next_help_heading = "Setup")]
     Init {
         #[arg(long)]
@@ -103,16 +97,20 @@ enum DraftCmd {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         title: Vec<String>,
     },
+    /// Promote a draft to published
+    Promote { slug: String },
+    /// Push blog repo to remote
+    Push,
 }
 
 #[derive(Subcommand)]
-enum BlogCmd {
+enum PostCmd {
     /// List published posts
     Ls,
-    /// Push blog repo to remote
-    Push,
     /// Move a published post back to drafts
     Demote { slug: String },
+    /// Push blog repo to remote
+    Push,
 }
 
 pub(crate) struct StudySource {
@@ -776,10 +774,6 @@ fn cmd_push() -> Result<(), String> {
     Ok(())
 }
 
-fn cmd_pull() -> Result<(), String> {
-    let config = load_config()?;
-    git_passthrough(&config.repo, &["pull", "--rebase"])
-}
 
 // --- blog helpers ---
 
@@ -1205,18 +1199,19 @@ fn main() {
         Commands::Search { query } => cmd_search(&query),
         Commands::View { path } => cmd_view(&path),
         Commands::Log { count } => cmd_log(count),
-        Commands::Pull => cmd_pull(),
+
         Commands::Draft { cmd } => match cmd {
             DraftCmd::Ls => cmd_draft_ls(),
             DraftCmd::Create { title } => cmd_write(&title),
+            DraftCmd::Promote { slug } => cmd_publish(&slug),
+            DraftCmd::Push => cmd_blog_push(),
         },
-        Commands::Publish { slug } => cmd_publish(&slug),
+        Commands::Post { cmd } => match cmd {
+            PostCmd::Ls => cmd_blog_ls(),
+            PostCmd::Demote { slug } => cmd_blog_demote(&slug),
+            PostCmd::Push => cmd_blog_push(),
+        },
         Commands::Quiz { name } => cmd_quiz(name.as_deref()),
-        Commands::Blog { cmd } => match cmd {
-            BlogCmd::Ls => cmd_blog_ls(),
-            BlogCmd::Push => cmd_blog_push(),
-            BlogCmd::Demote { slug } => cmd_blog_demote(&slug),
-        },
         Commands::Config { cmd } => match cmd {
             ConfigCmd::Ls => cmd_config_ls(),
             ConfigCmd::Set { key, value } => cmd_config_set(&key, &value),
