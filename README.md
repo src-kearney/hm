@@ -39,7 +39,7 @@ age-keygen -o ~/.config/hm/age.key
 
 Creates `~/.local/share/hm` (cloned repo) and `~/.config/hm/config.toml`. See [`config.example.toml`](config.example.toml) for all available options.
 
-## demo
+## notes demo
 
 ```
 % hm ls
@@ -71,6 +71,31 @@ Pushed → https://github.com/src-kearney/thoughts.git
 Double quotes `"` are required when the thought contains shell special characters like `?`.
 
 Thoughts with `?` get a reply from [ollama](https://ollama.com). Set `ollama = true` in config. 
+
+## blog demo
+
+```
+% hm config set blog_repo ~/github/my-blog
+% hm config set age_key ~/.config/hm/age.key
+
+% hm draft create "you can't subpoena a weight matrix"
+Created draft: you-cant-subpoena-a-weight-matrix
+Opening in $EDITOR...
+
+% hm draft ls
+you-cant-subpoena-a-weight-matrix  2026-07-19  you can't subpoena a weight matrix
+
+% hm draft promote you-cant-subpoena-a-weight-matrix
+Published: you-cant-subpoena-a-weight-matrix
+
+% hm post ls
+you-cant-subpoena-a-weight-matrix  2026-07-19  you can't subpoena a weight matrix
+
+% hm post push
+Pushed → https://github.com/src-kearney/srock.rocks.git
+```
+
+Drafts are encrypted at rest with [age](https://age-encryption.org) in the blog repo. Published posts are plaintext. Promote a draft to publish.
 
 ## commit log format
 
