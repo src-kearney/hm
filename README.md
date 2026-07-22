@@ -61,7 +61,7 @@ Pushed → https://github.com/src-kearney/thoughts.git
 
 Double quotes `"` are required when the thought contains shell special characters like `?`.
 
-Thoughts with `?` get a reply from [ollama](https://ollama.com) (in heuristic mode). Set `ollama = true` in config.
+Thoughts with `?` get a reply from [ollama](https://ollama.com) (in heuristic mode). Set `ollama = true` in config if you want this.
 
 ### blog
 
