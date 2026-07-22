@@ -25,21 +25,12 @@ hm draft push            # push blog repo to remote
 hm post ls               # list published posts
 hm post demote <slug>    # move a published post back to drafts
 hm post push             # push blog repo to remote
-hm quiz [name]           # quiz yourself on a study source
+hm quiz [name]           # quiz yourself on a repo
 ```
 
-## setup
+## demo
 
-```bash
-brew install age          # encryption for drafts
-cargo install --path .
-hm init --repo git@github.com:you/your-notes-repo.git
-age-keygen -o ~/.config/hm/age.key
-```
-
-Creates `~/.local/share/hm` (cloned repo) and `~/.config/hm/config.toml`. See [`config.example.toml`](config.example.toml) for all available options.
-
-## notes demo
+### notes
 
 ```
 % hm ls
@@ -70,12 +61,12 @@ Pushed → https://github.com/src-kearney/thoughts.git
 
 Double quotes `"` are required when the thought contains shell special characters like `?`.
 
-Thoughts with `?` get a reply from [ollama](https://ollama.com). Set `ollama = true` in config. 
+Thoughts with `?` get a reply from [ollama](https://ollama.com) (in heuristic mode). Set `ollama = true` in config.
 
-## blog demo
+### blog
 
 ```
-% hm config set blog_repo ~/github/my-blog
+% hm config set blog_repo ~/github/srock.rocks
 % hm config set age_key ~/.config/hm/age.key
 
 % hm draft create "you can't subpoena a weight matrix"
@@ -96,6 +87,17 @@ Pushed → https://github.com/src-kearney/srock.rocks.git
 ```
 
 Drafts are encrypted at rest with [age](https://age-encryption.org) in the blog repo. Published posts are plaintext. Promote a draft to publish.
+
+## setup
+
+```bash
+brew install age          # encryption for drafts
+cargo install --path .
+hm init --repo git@github.com:you/your-notes-repo.git
+age-keygen -o ~/.config/hm/age.key
+```
+
+Creates `~/.local/share/hm` (cloned repo) and `~/.config/hm/config.toml`. See [`config.example.toml`](config.example.toml) for all available options.
 
 ## commit log format
 
