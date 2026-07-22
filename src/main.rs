@@ -10,7 +10,7 @@ use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 mod tui;
 
 #[derive(Parser)]
-#[command(name = "hm", about = "Minimal thought-capture CLI")]
+#[command(name = "hm", override_usage = "hm \"<thought>\"\n       hm <COMMAND>")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
