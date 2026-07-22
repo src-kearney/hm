@@ -16,7 +16,7 @@ hm search <query>        # search entries (case-insensitive)
 hm view <file>           # view a markdown file
 hm push                  # push to remote
 hm config ls             # show all config values
-hm config set <key> <v>  # set a config value
+hm config set <k> <v>    # set a config value
 hm init --repo <url>     # first-time setup
 hm draft ls              # list drafts
 hm draft create "title"  # new encrypted draft, opens $EDITOR
